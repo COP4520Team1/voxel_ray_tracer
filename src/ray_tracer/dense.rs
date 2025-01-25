@@ -8,7 +8,7 @@ use super::Scene;
 
 /// This storage will be a temporary alternative to an octree until that is implemented.
 pub struct DenseStorage {
-    data: Arc<[Voxel]>,
+    data: Arc<[Option<Voxel>]>,
     dims: UVec3,
 }
 

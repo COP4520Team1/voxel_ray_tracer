@@ -1,4 +1,4 @@
-use glam::{IVec3, U8Vec3};
+use glam::{U8Vec3, UVec3};
 
 /// Data associated with a single voxel.
 pub struct Voxel {
@@ -8,8 +8,15 @@ pub struct Voxel {
 /// An iterator that produces voxels.
 pub struct VoxelGenerator {}
 
+impl VoxelGenerator {
+    /// Provides a hint about the dimensions of the voxel space.
+    pub fn dims() -> UVec3 {
+        todo!()
+    }
+}
+
 impl Iterator for VoxelGenerator {
-    type Item = (IVec3, Voxel);
+    type Item = Option<Voxel>;
 
     fn next(&mut self) -> Option<Self::Item> {
         todo!()
