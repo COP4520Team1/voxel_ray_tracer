@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use glam::UVec3;
+use glam::{IVec3, UVec3};
 
 use crate::voxel::{Voxel, VoxelGenerator};
 
@@ -13,7 +13,7 @@ pub struct DenseStorage {
 }
 
 impl Scene for DenseStorage {
-    fn from_voxels(generator: VoxelGenerator) -> Self {
+    fn from_voxels(generator: VoxelGenerator, bounds: (IVec3, IVec3)) -> Self {
         todo!()
     }
 
