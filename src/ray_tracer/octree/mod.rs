@@ -1,17 +1,18 @@
-use glam::IVec3;
-
 use crate::voxel::{Voxel, VoxelGenerator};
 
-use super::Scene;
+use super::{
+    types::{IAabb, Ray},
+    Scene,
+};
 
 pub struct Octree {}
 
 impl Scene for Octree {
-    fn from_voxels(generator: VoxelGenerator, bounds: (IVec3, IVec3)) -> Self {
+    fn from_voxels(generator: VoxelGenerator, bb: IAabb) -> Self {
         todo!()
     }
 
-    fn trace(&self) -> Option<Voxel> {
+    fn trace(&self, ray: Ray) -> Option<Voxel> {
         todo!()
     }
 }

@@ -1,4 +1,4 @@
-use glam::IVec3;
+use types::{IAabb, Ray};
 
 use crate::{
     export::Framebuffer,
@@ -7,6 +7,7 @@ use crate::{
 
 pub mod dense;
 pub mod octree;
+pub mod types;
 
 pub struct RayTracer<T: Scene> {
     scene: T,
@@ -14,11 +15,9 @@ pub struct RayTracer<T: Scene> {
 
 impl<T: Scene> RayTracer<T> {
     /// Creates a ray tracer with a scene from a voxel generator and bounds.
-    ///
-    /// `bounds` represents the `(lower, upper)` bounds that voxels are generated in, where for each dimension1 `lower < higher`.
-    pub fn from_voxels(generator: VoxelGenerator, bounds: (IVec3, IVec3)) -> Self {
+    pub fn from_voxels(generator: VoxelGenerator, bb: IAabb) -> Self {
         Self {
-            scene: T::from_voxels(generator, bounds),
+            scene: T::from_voxels(generator, bb),
         }
     }
 
@@ -33,10 +32,9 @@ impl<T: Scene> RayTracer<T> {
 /// we can abstract the functionality into a trait.
 pub trait Scene {
     /// Collects voxels from a generator.
-    ///
-    /// `bounds` represents the `(lower, upper)` bounds that voxels are generated in, where for each dimension1 `lower < higher`.
-    fn from_voxels(generator: VoxelGenerator, bounds: (IVec3, IVec3)) -> Self;
+    fn from_voxels(generator: VoxelGenerator, bb: IAabb) -> Self;
 
-    /// TODO: change type signature to include parameters needed.
-    fn trace(&self) -> Option<Voxel>;
+    /// Trace a ray into the scene to get voxel information.
+    /// TODO: Should it return voxel or pixel info?
+    fn trace(&self, ray: Ray) -> Option<Voxel>;
 }

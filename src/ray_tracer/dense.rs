@@ -1,23 +1,27 @@
 use std::sync::Arc;
 
-use glam::{IVec3, UVec3};
-
 use crate::voxel::{Voxel, VoxelGenerator};
 
-use super::Scene;
+use super::{
+    types::{IAabb, Ray},
+    Scene,
+};
 
 /// This storage will be a temporary alternative to an octree until that is implemented.
 pub struct DenseStorage {
     data: Arc<[Option<Voxel>]>,
-    dims: UVec3,
+    bb: IAabb,
 }
 
 impl Scene for DenseStorage {
-    fn from_voxels(generator: VoxelGenerator, bounds: (IVec3, IVec3)) -> Self {
-        todo!()
+    fn from_voxels(generator: VoxelGenerator, bb: IAabb) -> Self {
+        let data = bb.iter().map(|pos| generator.lookup(pos)).collect();
+        Self { data, bb }
     }
 
-    fn trace(&self) -> Option<Voxel> {
+    fn trace(&self, ray: Ray) -> Option<Voxel> {
+        // TODO: Implement fast voxel traversal algorithm (Amanatides & Woo)
+        // https://github.com/cgyurgyik/fast-voxel-traversal-algorithm/blob/master/overview/FastVoxelTraversalOverview.md
         todo!()
     }
 }
