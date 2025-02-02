@@ -54,7 +54,7 @@ impl IAabb {
 
     /// Checks for an intersection with the bounding box.
     /// Returns the range in which the ray intersection the bounding box if so.
-    /// 
+    ///
     /// See: https://web.archive.org/web/20170329072729/http://www.cs.utah.edu/~awilliam/box/box.pdf
     pub fn intersection(&self, ray: Ray) -> Option<Range<f32>> {
         todo!()
