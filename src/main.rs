@@ -11,9 +11,9 @@ pub mod voxel;
 async fn main() {
     // Create voxel data.
     let voxel_generator = VoxelGenerator::new();
-    let bounds = (IVec3::new(-10, -10, -10), IVec3::new(10, 10, 10));
+    let bb = ray_tracer::types::IAabb::new(IVec3::ZERO, 10 * IVec3::ONE);
     // Create ray tracer.
-    let ray_tracer = RayTracer::<DenseStorage>::from_voxels(voxel_generator, bounds);
+    let ray_tracer = RayTracer::<DenseStorage>::from_voxels(voxel_generator, bb);
     // Run ray tracer.
     let fb = ray_tracer.render().await;
     // Export image.
