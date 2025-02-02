@@ -22,6 +22,10 @@ impl Scene for DenseStorage {
     fn trace(&self, ray: Ray) -> Option<Voxel> {
         // TODO: Implement fast voxel traversal algorithm (Amanatides & Woo)
         // https://github.com/cgyurgyik/fast-voxel-traversal-algorithm/blob/master/overview/FastVoxelTraversalOverview.md
+        let Some(range) = self.bb.intersection(ray) else {
+            return None;
+        };
+
         todo!()
     }
 }
