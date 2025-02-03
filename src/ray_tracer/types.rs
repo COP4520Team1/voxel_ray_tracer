@@ -12,6 +12,15 @@ pub struct Ray {
     pub dir: Vec3A,
 }
 
+impl Ray {
+    pub fn new(origin: Vec3A, dir: Vec3A) -> Self {
+        Self {
+            origin,
+            dir: dir.normalize(),
+        }
+    }
+}
+
 /// Signed-integer axis-aligned bounding box.
 #[derive(Clone, Copy)]
 pub struct IAabb {
@@ -52,11 +61,110 @@ impl IAabb {
             .map(|((x, y), z)| IVec3::new(x, y, z))
     }
 
-    /// Checks for an intersection with the bounding box.
-    /// Returns the range in which the ray intersection the bounding box if so.
+    /// Get minimum point in bounds.
+    pub fn min(&self) -> IVec3 {
+        self.origin - self.extents
+    }
+
+    /// Get maximum point in bounds.
+    pub fn max(&self) -> IVec3 {
+        self.origin + self.extents
+    }
+
+    /// Checks for an intersection with the bounding box along a range of a ray.
+    /// Returns the range in which the ray intersects the bounding box if so.
     ///
     /// See: https://web.archive.org/web/20170329072729/http://www.cs.utah.edu/~awilliam/box/box.pdf
-    pub fn intersection(&self, ray: Ray) -> Option<Range<f32>> {
-        todo!()
+    pub fn intersection(&self, ray: Ray, range: Range<f32>) -> Option<Range<f32>> {
+        let min = self.min().as_vec3a();
+        let max = self.max().as_vec3a();
+
+        let x_dir_inv = 1.0 / ray.dir.x;
+
+        let (x_min, x_max) = if x_dir_inv >= 0.0 {
+            (
+                (min.x - ray.origin.x) * x_dir_inv,
+                (max.x - ray.origin.x) * x_dir_inv,
+            )
+        } else {
+            (
+                (max.x - ray.origin.x) * x_dir_inv,
+                (min.x - ray.origin.x) * x_dir_inv,
+            )
+        };
+
+        let y_dir_inv = 1.0 / ray.dir.y;
+
+        let (y_min, y_max) = if y_dir_inv >= 0.0 {
+            (
+                (min.y - ray.origin.y) * y_dir_inv,
+                (max.y - ray.origin.y) * y_dir_inv,
+            )
+        } else {
+            (
+                (max.y - ray.origin.y) * y_dir_inv,
+                (min.y - ray.origin.y) * y_dir_inv,
+            )
+        };
+
+        if x_min > y_max || y_min > x_max {
+            return None;
+        }
+
+        let (t_min, t_max) = (x_min.max(y_min), x_max.min(y_max));
+
+        let z_dir_inv = 1.0 / ray.dir.z;
+
+        let (z_min, z_max) = if z_dir_inv >= 0.0 {
+            (
+                (min.z - ray.origin.z) * z_dir_inv,
+                (max.z - ray.origin.z) * z_dir_inv,
+            )
+        } else {
+            (
+                (max.z - ray.origin.z) * z_dir_inv,
+                (min.z - ray.origin.z) * z_dir_inv,
+            )
+        };
+
+        if t_min > z_max || z_min > t_max {
+            return None;
+        }
+
+        let (start, end) = (t_max.min(z_max), t_min.max(z_min));
+
+        if start > range.end || end < range.start {
+            return None;
+        }
+
+        Some(start..end)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    /// Check for an intersection.
+    fn intersects() {
+        let bb = IAabb::new(IVec3::ZERO, IVec3::ONE * 5);
+
+        assert!(bb
+            .intersection(
+                Ray::new(Vec3A::NEG_ONE * 6.0, Vec3A::ONE),
+                0.0..f32::INFINITY
+            )
+            .is_some());
+    }
+
+    #[test]
+    /// Check for no intersection.
+    fn not_intersects() {
+        let bb = IAabb::new(IVec3::ZERO, IVec3::ONE * 5);
+
+        assert!(bb
+            .intersection(Ray::new(Vec3A::ONE * 6.0, Vec3A::ONE), 0.0..f32::INFINITY)
+            .is_none());
     }
 }
