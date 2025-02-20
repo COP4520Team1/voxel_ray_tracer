@@ -38,6 +38,21 @@ impl IAabb {
         Self { origin, extents }
     }
 
+    /// Width of box (x).
+    pub fn width(&self) -> usize {
+        (self.extents.x * 2) as usize
+    }
+
+    /// Width of box (x).
+    pub fn height(&self) -> usize {
+        (self.extents.y * 2) as usize
+    }
+
+    /// Width of box (x).
+    pub fn length(&self) -> usize {
+        (self.extents.z * 2) as usize
+    }
+
     /// Iterate over values in x-axis.
     pub fn iter_x(&self) -> Range<i32> {
         (self.origin.x - self.extents.x)..(self.origin.x + self.extents.x)
@@ -131,7 +146,7 @@ impl IAabb {
             return None;
         }
 
-        let (start, end) = (t_max.min(z_max), t_min.max(z_min));
+        let (start, end) = (t_min.max(z_min), t_max.min(z_max));
 
         if start > range.end || end < range.start {
             return None;

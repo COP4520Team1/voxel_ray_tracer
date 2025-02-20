@@ -1,6 +1,7 @@
 use glam::{IVec3, U8Vec3};
 
 /// Data associated with a single voxel.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Voxel {
     pub color: U8Vec3,
 }
