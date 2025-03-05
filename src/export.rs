@@ -1,12 +1,21 @@
 use std::path::PathBuf;
 
 pub struct Framebuffer {
-    width: u32,
-    height: u32,
+    width: usize,
+    height: usize,
     // vector of all the pixels
     pixels: Box<[AtomicU32]>,
 }
 impl Framebuffer {
+    // creates a vector of size width * height, converts it to box
+    pub fn new(width: usize, height: usize) -> Self {
+        let pixels = (0..size)
+        .map(|_| AtomicU32::new(0))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+        Self { width, height, pixels }
+
+    }
     pub fn export_image(fb: Framebuffer, path: impl Into<PathBuf>) -> image::ImageResult<()> {
         // Create image from framebuffer
         let mut img = RgbImage::new(fb.width, fb.height);
