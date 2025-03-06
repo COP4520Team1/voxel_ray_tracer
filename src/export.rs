@@ -3,13 +3,12 @@ use std::path::PathBuf;
 pub struct Framebuffer {
     width: usize,
     height: usize,
-    // vector of all the pixels
     pixels: Box<[AtomicU32]>,
 }
 impl Framebuffer {
     // creates a vector of size width * height, converts it to box
     pub fn new(width: usize, height: usize) -> Self {
-        let pixels = (0..size)
+        let pixels = (0..(width * height))
         .map(|_| AtomicU32::new(0))
         .collect::<Vec<_>>()
         .into_boxed_slice();
@@ -29,8 +28,9 @@ impl Framebuffer {
     }
     
     pub fn pixel_mut(&self, x: usize, y: usize) -> &AtomicU32 {
-        return self.pixels[y * self.width + x];
-    
+        // return self.pixels[y * self.width + x];
+        todo!();
+
     }
     
     fn into_image(self) -> Image {
