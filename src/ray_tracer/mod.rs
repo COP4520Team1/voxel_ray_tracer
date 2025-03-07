@@ -15,13 +15,13 @@ pub struct RayTracer<T: Scene> {
 
 impl<T: Scene> RayTracer<T> {
     /// Creates a ray tracer with a scene from a voxel generator and bounds.
-    pub fn from_voxels(generator: VoxelGenerator, bb: IAabb) -> Self {
+    pub fn from_voxels(generator: &VoxelGenerator, bb: IAabb) -> Self {
         Self {
             scene: T::from_voxels(generator, bb),
         }
     }
 
-    pub async fn render(&self) -> Framebuffer {
+    pub fn render(&self) -> Framebuffer {
         todo!()
     }
 }
@@ -32,7 +32,7 @@ impl<T: Scene> RayTracer<T> {
 /// we can abstract the functionality into a trait.
 pub trait Scene {
     /// Collects voxels from a generator.
-    fn from_voxels(generator: VoxelGenerator, bb: IAabb) -> Self;
+    fn from_voxels(generator: &VoxelGenerator, bb: IAabb) -> Self;
 
     /// Trace a ray into the scene to get voxel information.
     /// TODO: Should it return voxel or pixel info?

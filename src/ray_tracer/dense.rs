@@ -17,7 +17,11 @@ impl DenseStorage {
     pub fn new(data: impl Into<Arc<[Option<Voxel>]>>, bb: IAabb) -> Self {
         let data = data.into();
 
-        assert!(data.len() == bb.width() * bb.height() * bb.length());
+        assert_eq!(
+            data.len(),
+            bb.width() * bb.height() * bb.length(),
+            "aabb size was not equal to data length"
+        );
 
         Self { data, bb }
     }
@@ -26,7 +30,7 @@ impl DenseStorage {
 const VOXEL_SIZE: f32 = 1.0;
 
 impl Scene for DenseStorage {
-    fn from_voxels(generator: VoxelGenerator, bb: IAabb) -> Self {
+    fn from_voxels(generator: &VoxelGenerator, bb: IAabb) -> Self {
         let data = bb.iter().map(|pos| generator.lookup(pos)).collect();
         Self { data, bb }
     }
@@ -34,9 +38,7 @@ impl Scene for DenseStorage {
     fn trace(&self, ray: Ray) -> Option<Voxel> {
         // See: https://github.com/cgyurgyik/fast-voxel-traversal-algorithm/blob/master/overview/FastVoxelTraversalOverview.md
 
-        let Some(range) = self.bb.intersection(ray, 0.01..f32::INFINITY) else {
-            return None;
-        };
+        let range = self.bb.intersection(ray, 0.01..f32::INFINITY)?;
 
         // get end points of ray
         let ray_start = ray.origin + ray.dir * range.start;
@@ -103,12 +105,9 @@ impl Scene for DenseStorage {
 
         // use conditions to iterate over voxel spaces
         while curr_x_idx != end_x_idx || curr_y_idx != end_y_idx || curr_z_idx != end_z_idx {
-            let Some(voxel_entry) = self
+            let voxel_entry = self
                 .data
-                .get(curr_z_idx + self.bb.width() * (curr_y_idx + self.bb.height() * curr_x_idx))
-            else {
-                return None;
-            };
+                .get(curr_z_idx + self.bb.width() * (curr_y_idx + self.bb.height() * curr_x_idx))?;
 
             if voxel_entry.is_some() {
                 return *voxel_entry;
@@ -152,8 +151,8 @@ mod tests {
         {
             let ray = Ray::new(Vec3A::new(0.0, -5.0, 0.0), Vec3A::Y);
             assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
-            let voxel = storage.trace(ray).expect("no voxel found");
-            assert!(voxel == Voxel { color: U8Vec3::ONE });
+            let voxel = storage.trace(ray).expect("voxel found");
+            assert_eq!(voxel, Voxel { color: U8Vec3::ONE });
         }
     }
 
@@ -166,15 +165,15 @@ mod tests {
         {
             let ray = Ray::new(Vec3A::new(0.0, -5.0, 0.0), Vec3A::Y);
             assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
-            let voxel = storage.trace(ray).expect("no voxel found");
-            assert!(voxel == Voxel { color: U8Vec3::ONE });
+            let voxel = storage.trace(ray).expect("voxel found");
+            assert_eq!(voxel, Voxel { color: U8Vec3::ONE });
         }
 
         {
             let ray = Ray::new(Vec3A::new(1.0, -5.0, 1.0), Vec3A::Y);
             assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
             let voxel = storage.trace(ray);
-            assert!(voxel == None);
+            assert_eq!(voxel, None);
         }
     }
 
@@ -187,7 +186,7 @@ mod tests {
             let ray = Ray::new(Vec3A::new(1.0, -5.0, 1.0), Vec3A::Y);
             assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
             let voxel = storage.trace(ray);
-            assert!(voxel == None);
+            assert_eq!(voxel, None);
         }
     }
 }
