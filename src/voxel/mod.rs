@@ -1,12 +1,13 @@
 use glam::{IVec3, U8Vec3};
 
 /// Data associated with a single voxel.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Voxel {
     pub color: U8Vec3,
 }
 
 /// An iterator that produces voxels.
+#[derive(Clone)]
 pub struct VoxelGenerator {}
 
 impl VoxelGenerator {
