@@ -7,7 +7,14 @@ edition = "2021"
 glam = "0.29.2"
 image = "0.25.5"
 itertools = "0.14.0"
-tokio = { version = "1.43", features = ["full"] }
+rayon = "1.10.0"
 tracing = "0.1.41"
 tracing-chrome = "0.7.2"
 tracing-subscriber = "0.3.19"
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "bench"
+harness = false
