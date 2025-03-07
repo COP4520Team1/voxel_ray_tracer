@@ -1,5 +1,5 @@
 use crate::ray_tracer::{types::Ray, RayTracer};
-use glam::{Vec3A, IVec3};
+use glam::{IVec3, Vec3A};
 
 pub struct Camera {
     pub img_height: u32,
@@ -25,7 +25,7 @@ pub struct Camera {
     u: Vec3A,
     v: Vec3A,
     w: Vec3A,
-    
+
     defocus_disk_u: Vec3A,
     defocus_disk_v: Vec3A,
 }
@@ -62,7 +62,10 @@ impl Camera {
         let pixel_delta_u = viewport_u / img_width as f32;
         let pixel_delta_v = viewport_v / img_height as f32;
 
-        let pixel00_loc = (center.as_vec3a() - (focus_dist * w) - (0.5 * viewport_u) - (0.5 * viewport_v) + (0.5 * (pixel_delta_u + pixel_delta_v))).as_ivec3();
+        let pixel00_loc =
+            (center.as_vec3a() - (focus_dist * w) - (0.5 * viewport_u) - (0.5 * viewport_v)
+                + (0.5 * (pixel_delta_u + pixel_delta_v)))
+                .as_ivec3();
 
         let defocus_radius = focus_dist * Self::degrees_to_radians(0.5 * defocus_angle).tan();
         let defocus_disk_u = defocus_radius * u;
@@ -94,14 +97,19 @@ impl Camera {
 
     pub async fn get_ray(&self, i: u32, j: u32) -> Ray {
         let offset = self.sample_square();
-        let pixel_sample = self.pixel00_loc.as_vec3a() + ((i as f32 + offset.x) * self.pixel_delta_u) + ((j as f32 + offset.y) * self.pixel_delta_v);
+        let pixel_sample = self.pixel00_loc.as_vec3a()
+            + ((i as f32 + offset.x) * self.pixel_delta_u)
+            + ((j as f32 + offset.y) * self.pixel_delta_v);
 
-        let ray_origin = if self.defocus_angle <= 0.0 { self.center.as_vec3a() } else { self.defocus_disk_sample() };
+        let ray_origin = if self.defocus_angle <= 0.0 {
+            self.center.as_vec3a()
+        } else {
+            self.defocus_disk_sample()
+        };
         let ray_direction = (pixel_sample - ray_origin).normalize();
 
         Ray::new(ray_origin, ray_direction)
     }
-
 
     // Helper functions
     fn degrees_to_radians(degrees: f32) -> f32 {
