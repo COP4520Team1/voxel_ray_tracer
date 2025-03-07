@@ -12,7 +12,7 @@ pub struct FramebufferIter<'fb> {
 }
 
 impl<'fb> Iterator for FramebufferIter<'fb> {
-    type Item = ();
+    type Item = (); // TODO: change to AtomicU32
 
     fn next(&mut self) -> Option<Self::Item> {
         todo!()
