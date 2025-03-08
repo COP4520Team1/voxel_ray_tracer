@@ -5,10 +5,12 @@ use super::{
     Scene,
 };
 
-pub struct Octree {}
+pub struct SparseStorage {
+    octree: Octree,
+}
 
-impl Scene for Octree {
-    fn from_voxels(generator: VoxelGenerator, bb: IAabb) -> Self {
+impl Scene for SparseStorage {
+    fn from_voxels(generator: &VoxelGenerator, bb: IAabb) -> Self {
         todo!()
     }
 
@@ -16,3 +18,5 @@ impl Scene for Octree {
         todo!()
     }
 }
+
+pub struct Octree {}
