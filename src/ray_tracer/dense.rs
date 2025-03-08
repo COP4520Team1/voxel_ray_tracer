@@ -1,4 +1,6 @@
-use std::{cmp::Ordering, sync::Arc};
+use std::sync::Arc;
+
+use glam::Vec3A;
 
 use crate::voxel::{Voxel, VoxelGenerator};
 
@@ -27,7 +29,13 @@ impl DenseStorage {
     }
 }
 
+/// Size of a voxel in the grid.
 const VOXEL_SIZE: f32 = 1.0;
+
+/// Maximum number of steps to try to get a voxel in the grid.
+///
+/// TODO: Should we have a maximum, when we can just test out of bounds?
+const MAX_STEPS: usize = 256;
 
 impl Scene for DenseStorage {
     fn from_voxels(generator: &VoxelGenerator, bb: IAabb) -> Self {
@@ -36,92 +44,59 @@ impl Scene for DenseStorage {
     }
 
     fn trace(&self, ray: Ray) -> Option<Voxel> {
-        // See: https://github.com/cgyurgyik/fast-voxel-traversal-algorithm/blob/master/overview/FastVoxelTraversalOverview.md
+        // See (for basic impl): https://github.com/cgyurgyik/fast-voxel-traversal-algorithm/blob/master/overview/FastVoxelTraversalOverview.md
+        // See (for DRY impl): https://m4xc.dev/articles/amanatides-and-woo/
 
         let range = self.bb.intersection(ray, 0.01..f32::INFINITY)?;
 
-        // get end points of ray
-        let ray_start = ray.origin + ray.dir * range.start;
-        let ray_end = ray.origin + ray.dir * range.end;
+        let ray_start = ray.origin + ray.dir * (range.start + 0.0001);
 
+        let max = self.bb.max().as_vec3a();
         let min = self.bb.min().as_vec3a();
 
-        // setup x conditions
-        let mut curr_x_idx = (ray_start.x - min.x / VOXEL_SIZE).ceil().max(0.0) as usize;
-        let end_x_idx = (ray_end.x - min.x / VOXEL_SIZE).ceil().max(0.0) as usize;
-        let (step_x, delta_x, mut max_x) = match ray.dir.x.partial_cmp(&0.0) {
-            Some(Ordering::Greater) => (
-                1,
-                VOXEL_SIZE / ray.dir.x,
-                range.start
-                    + ((min.x + curr_x_idx as f32 * VOXEL_SIZE - ray_start.x) / ray.dir.x).abs(),
-            ),
-            Some(Ordering::Less) => (
-                -1,
-                VOXEL_SIZE / -ray.dir.x,
-                range.start
-                    + (min.x + (curr_x_idx as f32 - 1.0) * VOXEL_SIZE - ray_start.x) / ray.dir.x,
-            ),
-            _ => (0, range.end, range.end),
-        };
+        let entry_pos = (ray_start - min) * VOXEL_SIZE;
 
-        // setup y conditions
-        let mut curr_y_idx = (ray_start.y - min.y / VOXEL_SIZE).ceil().max(0.0) as usize;
-        let end_y_idx = (ray_end.y - min.y / VOXEL_SIZE).ceil().max(0.0) as usize;
-        let (step_y, delta_y, mut max_y) = match ray.dir.y.partial_cmp(&0.0) {
-            Some(Ordering::Greater) => (
-                1,
-                VOXEL_SIZE / ray.dir.y,
-                range.start
-                    + ((min.y + curr_y_idx as f32 * VOXEL_SIZE - ray_start.y) / ray.dir.y).abs(),
-            ),
-            Some(Ordering::Less) => (
-                -1,
-                VOXEL_SIZE / -ray.dir.y,
-                range.start
-                    + (min.y + ((curr_y_idx as f32 - 1.0) * VOXEL_SIZE - ray_start.y) / ray.dir.y)
-                        .abs(),
-            ),
-            _ => (0, range.end, range.end),
-        };
+        let step = ray.dir.signum();
+        let delta = (1.0 / ray.dir).abs();
 
-        // setup z conditions
-        let mut curr_z_idx = (ray_start.z - min.z / VOXEL_SIZE).ceil().max(0.0) as usize;
-        let end_z_idx = (ray_end.z - min.z / VOXEL_SIZE).ceil().max(0.0) as usize;
-        let (step_z, delta_z, mut max_z) = match ray.dir.z.partial_cmp(&0.0) {
-            Some(Ordering::Greater) => (
-                1,
-                VOXEL_SIZE / ray.dir.z,
-                range.start + (min.z + curr_z_idx as f32 * VOXEL_SIZE - ray_start.z) / ray.dir.z,
-            ),
-            Some(Ordering::Less) => (
-                -1,
-                VOXEL_SIZE / -ray.dir.z,
-                range.start
-                    + (min.z + (curr_z_idx as f32 - 1.0) * VOXEL_SIZE - ray_start.z) / ray.dir.z,
-            ),
-            _ => (0, range.end, range.end),
-        };
+        let pos = entry_pos.floor().clamp(Vec3A::ZERO, max - min);
+
+        let mut tmax = (pos - entry_pos + step.max(Vec3A::ZERO)) / ray.dir;
+
+        let mut curr_idx = pos.as_ivec3();
+
+        let step = step.as_ivec3();
 
         // use conditions to iterate over voxel spaces
-        while curr_x_idx != end_x_idx || curr_y_idx != end_y_idx || curr_z_idx != end_z_idx {
-            let voxel_entry = self
-                .data
-                .get(curr_z_idx + self.bb.width() * (curr_y_idx + self.bb.height() * curr_x_idx))?;
+        for _ in 0..MAX_STEPS {
+            let voxel_entry = self.data.get(
+                curr_idx.z as usize
+                    + self.bb.width()
+                        * (curr_idx.y as usize + self.bb.height() * curr_idx.x as usize),
+            )?;
 
             if voxel_entry.is_some() {
                 return *voxel_entry;
             }
 
-            if max_x < max_y && max_x < max_z {
-                curr_x_idx = curr_x_idx.saturating_add_signed(step_x);
-                max_x += delta_x;
-            } else if max_y < max_z {
-                curr_y_idx = curr_y_idx.saturating_add_signed(step_y);
-                max_y += delta_y;
+            if tmax.x < tmax.y && tmax.x < tmax.z {
+                curr_idx.x += step.x;
+                if curr_idx.x < 0 {
+                    break;
+                }
+                tmax.x += delta.x;
+            } else if tmax.y < tmax.z {
+                curr_idx.y += step.y;
+                if curr_idx.y < 0 {
+                    break;
+                }
+                tmax.y += delta.y;
             } else {
-                curr_z_idx = curr_z_idx.saturating_add_signed(step_z);
-                max_z += delta_z;
+                curr_idx.z += step.z;
+                if curr_idx.z < 0 {
+                    break;
+                }
+                tmax.z += delta.z;
             }
         }
 
@@ -146,12 +121,12 @@ mod tests {
     #[test]
     fn get_voxel_full() {
         let data = vec![Some(Voxel { color: U8Vec3::ONE }); 2 * 2 * 2];
-        let storage = DenseStorage::new(data, IAabb::new(IVec3::ONE, IVec3::ONE));
+        let storage = DenseStorage::new(data, IAabb::new(IVec3::ZERO, IVec3::ONE));
 
         {
             let ray = Ray::new(Vec3A::new(0.0, -5.0, 0.0), Vec3A::Y);
             assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
-            let voxel = storage.trace(ray).expect("voxel found");
+            let voxel = storage.trace(ray).expect("voxel not found");
             assert_eq!(voxel, Voxel { color: U8Vec3::ONE });
         }
     }
@@ -160,17 +135,17 @@ mod tests {
     fn get_voxel_one() {
         let mut data = vec![None; 2 * 2 * 2];
         data[0] = Some(Voxel { color: U8Vec3::ONE });
-        let storage = DenseStorage::new(data, IAabb::new(IVec3::ONE, IVec3::ONE));
+        let storage = DenseStorage::new(data, IAabb::new(IVec3::ZERO, IVec3::ONE));
 
         {
-            let ray = Ray::new(Vec3A::new(0.0, -5.0, 0.0), Vec3A::Y);
+            let ray = Ray::new(Vec3A::new(-0.5, -5.0, -0.5), Vec3A::Y);
             assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
-            let voxel = storage.trace(ray).expect("voxel found");
+            let voxel = storage.trace(ray).expect("voxel not found");
             assert_eq!(voxel, Voxel { color: U8Vec3::ONE });
         }
 
         {
-            let ray = Ray::new(Vec3A::new(1.0, -5.0, 1.0), Vec3A::Y);
+            let ray = Ray::new(Vec3A::new(0.5, -5.0, 0.5), Vec3A::Y);
             assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
             let voxel = storage.trace(ray);
             assert_eq!(voxel, None);
@@ -180,13 +155,140 @@ mod tests {
     #[test]
     fn get_voxel_none() {
         let data = vec![None; 2 * 2 * 2];
-        let storage = DenseStorage::new(data, IAabb::new(IVec3::ONE, IVec3::ONE));
+        let storage = DenseStorage::new(data, IAabb::new(IVec3::ZERO, IVec3::ONE));
 
         {
             let ray = Ray::new(Vec3A::new(1.0, -5.0, 1.0), Vec3A::Y);
             assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
             let voxel = storage.trace(ray);
             assert_eq!(voxel, None);
+        }
+    }
+
+    #[test]
+    fn get_voxel_dirs() {
+        let data = vec![
+            Some(Voxel {
+                color: U8Vec3::new(0, 0, 0),
+            }),
+            Some(Voxel {
+                color: U8Vec3::new(0, 0, 1),
+            }),
+            Some(Voxel {
+                color: U8Vec3::new(0, 1, 0),
+            }),
+            Some(Voxel {
+                color: U8Vec3::new(0, 1, 1),
+            }),
+            Some(Voxel {
+                color: U8Vec3::new(1, 0, 0),
+            }),
+            Some(Voxel {
+                color: U8Vec3::new(1, 0, 1),
+            }),
+            Some(Voxel {
+                color: U8Vec3::new(1, 1, 0),
+            }),
+            Some(Voxel {
+                color: U8Vec3::new(1, 1, 1),
+            }),
+        ];
+        let storage = DenseStorage::new(data, IAabb::new(IVec3::ZERO, IVec3::ONE));
+
+        {
+            let ray = Ray::new(Vec3A::new(-0.5, -5.0, -0.5), Vec3A::Y);
+            assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = storage.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(0, 0, 0)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(-5.0, -0.5, 0.5), Vec3A::X);
+            assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = storage.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(0, 0, 1)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(-0.5, 5.0, -0.5), Vec3A::NEG_Y);
+            assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = storage.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(0, 1, 0)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(-0.5, 5.0, 0.5), Vec3A::NEG_Y);
+            assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = storage.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(0, 1, 1)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(5.0, -0.5, -0.5), Vec3A::NEG_X);
+            assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = storage.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(1, 0, 0)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(5.0, -0.5, 0.5), Vec3A::NEG_X);
+            assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = storage.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(1, 0, 1)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(0.5, 0.5, -5.0), Vec3A::Z);
+            assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = storage.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(1, 1, 0)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(0.5, 0.5, 5.0), Vec3A::NEG_Z);
+            assert!(storage.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = storage.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(1, 1, 1)
+                }
+            );
         }
     }
 }
