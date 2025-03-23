@@ -8,7 +8,7 @@ use voxel_ray_tracer::{
 fn main() {
     // Create voxel data.
     let voxel_generator = VoxelGenerator::new();
-    let bb = IAabb::new(IVec3::ZERO, 1000 * IVec3::ONE);
+    let bb = IAabb::new(IVec3::ZERO, 100 * IVec3::ONE);
     // Create ray tracer.
     let ray_tracer = RayTracer::<DenseStorage>::from_voxels(&voxel_generator, bb);
     // Run ray tracer.

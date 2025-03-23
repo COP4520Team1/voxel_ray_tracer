@@ -11,7 +11,7 @@ pub struct Voxel {
 /// An iterator that produces voxels with z coordinate calculated by Perlin noise function mapped over x and y coordinates, and voxel color is mapped from max voxel height at its x and y coordinate
 #[derive(Clone)]
 pub struct VoxelGenerator {
-    seed: u32,
+    perlin: Perlin,
 }
 
 /// Max height of the voxel
@@ -33,22 +33,22 @@ impl VoxelGenerator {
     /// Create a new voxel generator with random seed.
     pub fn new() -> Self {
         let seed: u32 = rand::rng().random::<u32>();
-        Self { seed }
+        let perlin = Perlin::new(seed);
+        Self { perlin }
     }
 
     /// Creates a new voxel generator with set seed (for testing purposes)
     pub fn new_from_seed(seed: u32) -> Self {
-        Self { seed }
+        let perlin = Perlin::new(seed);
+        Self { perlin }
     }
 
     /// Lookup a voxel value at some position.
     pub fn lookup(&self, pos: IVec3) -> Option<Voxel> {
-        let perlin = Perlin::new(self.seed);
-
         // Calculate the Perlin noise value at (x, y)
         let nx = pos.x as f64 * SCALE;
         let ny = pos.y as f64 * SCALE;
-        let noise_value = perlin.get([nx, ny]);
+        let noise_value = self.perlin.get([nx, ny]);
 
         // Calculate the terrain height based on the noise value
         let terrain_z = ((noise_value + 1.0) / 2.0 * HEIGHT as f64) as i32;
@@ -80,6 +80,8 @@ impl VoxelGenerator {
 
 #[cfg(test)]
 mod tests {
+    use noise::Seedable;
+
     use super::*;
 
     const TEST_SEED: u32 = 12345;
@@ -128,7 +130,7 @@ mod tests {
         let voxel_gen_1 = VoxelGenerator::new();
         let voxel_gen_2 = VoxelGenerator::new();
 
-        assert_ne!(voxel_gen_1.seed, voxel_gen_2.seed, "Either the seeds were randomly generated to be the same (test case by rerunning test) or seed generation is not working properly");
+        assert_ne!(voxel_gen_1.perlin.seed(), voxel_gen_2.perlin.seed(), "Either the seeds were randomly generated to be the same (test case by rerunning test) or seed generation is not working properly");
     }
 
     #[test]
