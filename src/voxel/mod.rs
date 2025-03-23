@@ -33,12 +33,12 @@ impl VoxelGenerator {
     /// Create a new voxel generator with random seed.
     pub fn new() -> Self {
         let seed: u32 = rand::rng().random::<u32>();
-        Self{seed}
+        Self { seed }
     }
 
     /// Creates a new voxel generator with set seed (for testing purposes)
     pub fn new_from_seed(seed: u32) -> Self {
-        Self{seed}
+        Self { seed }
     }
 
     /// Lookup a voxel value at some position.
@@ -55,27 +55,24 @@ impl VoxelGenerator {
 
         // Check if the voxel exists at the requested position (z should be <= terrain_z)
         if pos.z >= 0 && pos.z <= terrain_z {
-            Some(Voxel{color: Self::height_to_color(terrain_z)})
-        } 
-        else {
+            Some(Voxel {
+                color: Self::height_to_color(terrain_z),
+            })
+        } else {
             None
         }
     }
 
-    
     fn height_to_color(z: i32) -> U8Vec3 {
         let normalized = z as f32 / HEIGHT as f32;
 
         if normalized < 0.3 {
             WATER_BLUE
-        } 
-        else if normalized < 0.6 {
+        } else if normalized < 0.6 {
             GRASS_GREEN
-        } 
-        else if normalized < 0.8 {
+        } else if normalized < 0.8 {
             MOUNTAIN_GRAY
-        } 
-        else {
+        } else {
             SNOW_WHITE
         }
     }
@@ -106,15 +103,24 @@ mod tests {
 
         // Check if the voxel exists at the calculated height
         let voxel_correct_height = voxel_generator.lookup(IVec3::new(x, y, terrain_z));
-        assert!(voxel_correct_height.is_some(), "Voxel does not exist at correct height");
+        assert!(
+            voxel_correct_height.is_some(),
+            "Voxel does not exist at correct height"
+        );
 
         // Check if the voxel above the calculated height does not exist
         let voxel_above = voxel_generator.lookup(IVec3::new(x, y, terrain_z + 1));
-        assert!(voxel_above.is_none(), "Voxel exists above the calculated height");
+        assert!(
+            voxel_above.is_none(),
+            "Voxel exists above the calculated height"
+        );
 
         // Ensure voxel exists below or at calculated height
         let voxel_below = voxel_generator.lookup(IVec3::new(x, y, terrain_z - 1));
-        assert!(voxel_below.is_some() || terrain_z == 0, "Voxel is missing below or at the calculated height");
+        assert!(
+            voxel_below.is_some() || terrain_z == 0,
+            "Voxel is missing below or at the calculated height"
+        );
     }
 
     #[test]
@@ -132,7 +138,13 @@ mod tests {
         let high_voxel = VoxelGenerator::height_to_color(HEIGHT - 1);
 
         assert_eq!(low_voxel, WATER_BLUE, "Low altitude should be blue (water)");
-        assert_eq!(mid_voxel, GRASS_GREEN, "Mid altitude should be green (grass)");
-        assert_eq!(high_voxel, SNOW_WHITE, "High altitude should be white (snow)");
+        assert_eq!(
+            mid_voxel, GRASS_GREEN,
+            "Mid altitude should be green (grass)"
+        );
+        assert_eq!(
+            high_voxel, SNOW_WHITE,
+            "High altitude should be white (snow)"
+        );
     }
 }
