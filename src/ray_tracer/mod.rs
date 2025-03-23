@@ -4,7 +4,9 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use types::{IAabb, Ray};
 
 use crate::{
-    camera::Camera, export::Framebuffer, voxel::{Voxel, VoxelGenerator}
+    camera::Camera,
+    export::Framebuffer,
+    voxel::{Voxel, VoxelGenerator},
 };
 
 pub mod dense;
@@ -21,7 +23,7 @@ impl<T: Scene + Sync> RayTracer<T> {
     pub fn from_voxels(generator: &VoxelGenerator, bb: IAabb) -> Self {
         Self {
             scene: T::from_voxels(generator, bb),
-            camera: Camera::default()
+            camera: Camera::default(),
         }
     }
 
@@ -42,11 +44,7 @@ impl<T: Scene + Sync> RayTracer<T> {
         };
 
         let raw_color = voxel.color.as_uvec3();
-        let color =
-            raw_color.x << 24 |
-            raw_color.y << 16 |
-            raw_color.z << 8 |
-            0xff;
+        let color = raw_color.x << 24 | raw_color.y << 16 | raw_color.z << 8 | 0xff;
 
         pixel.store(color, Ordering::Release);
     }
