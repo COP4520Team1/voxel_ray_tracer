@@ -1,10 +1,10 @@
 use std::ops::Range;
 
-use glam::{BVec2, BVec3, IVec3, Vec3A, Vec3Swizzles};
+use glam::{BVec3, IVec3, Vec3A};
 use itertools::Itertools;
 
 /// Ray-casting primitive.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct Ray {
     /// Starting position of the ray.
     pub origin: Vec3A,
@@ -22,7 +22,7 @@ impl Ray {
 }
 
 /// Signed-integer axis-aligned bounding box.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct IAabb {
     /// Position of AABB.
     pub origin: IVec3,
@@ -86,161 +86,18 @@ impl IAabb {
         self.origin + self.extents
     }
 
-    pub fn split(&self, index: usize) -> IAabb {
+    pub fn split(&self, index: usize) -> IAabb
+    {
         assert!(index < 8, "index must be in range 0-8");
-
+        
         let new_extents = self.extents / 2;
-        let offset_x = if (index & 1) == 0 {
-            -new_extents.x
-        } else {
-            new_extents.x
-        };
-        let offset_y = if (index & 2) == 0 {
-            -new_extents.y
-        } else {
-            new_extents.y
-        };
-        let offset_z = if (index & 3) == 0 {
-            -new_extents.y
-        } else {
-            new_extents.y
-        };
+        let offset_x = if(index & 1) == 0 {-new_extents.x} else {new_extents.x};
+        let offset_y = if(index & 2) == 0 {-new_extents.y} else {new_extents.y};
+        let offset_z = if(index & 3) == 0 {-new_extents.y} else {new_extents.y};
 
         let child_origin = self.origin + IVec3::new(offset_x, offset_y, offset_z);
-
+        
         IAabb::new(child_origin, new_extents)
-    }
-
-    /// Returns the next power of two extent.
-    ///
-    /// Takes the maximum dimension and uses that to make a cube with sides that are a power of two.
-    pub fn next_pow2(&self) -> Self {
-        let max_extent = self.extents.max_element() as u32;
-
-        // bit twiddling to next power of two
-        let mut pow2 = max_extent;
-        pow2 |= pow2 >> 1;
-        pow2 |= pow2 >> 2;
-        pow2 |= pow2 >> 4;
-        pow2 |= pow2 >> 8;
-        pow2 |= pow2 >> 16;
-        pow2 += 1;
-
-        let pow2 = pow2 as i32;
-
-        Self {
-            origin: self.origin,
-            extents: pow2 * IVec3::ONE,
-        }
-    }
-
-    /// Finds the index for the octant that the position lies in.
-    pub fn index_of(&self, pos: IVec3) -> Option<usize> {
-        // we can move the position into local space and compare the sign
-        let local_pos = pos - self.origin;
-
-        // calculate index
-        let positive = local_pos.cmpgt(IVec3::ZERO);
-        let x = positive.x as i32;
-        let y = positive.y as i32;
-        let z = positive.z as i32;
-        let xyz = (x | y << 1 | z << 2) as usize;
-
-        // make the position zero exclusive to simplify bounds check (so dist(0) == dist(1), since 0.5 is the middle but we work with integers)
-        let local_pos = local_pos - IVec3::new(1 - x, 1 - y, 1 - z);
-
-        // check that local position is inside extents
-        if local_pos.abs().cmple(self.extents) != BVec3::TRUE {
-            return None;
-        }
-
-        Some(xyz)
-    }
-
-    /// Gets the octant AABB from an index.
-    ///
-    /// Panics if the idx is outside of range (greater than 0b111).
-    pub fn octant(&self, idx: usize) -> Self {
-        assert!(idx <= 0b111, "index is out of range");
-        let idx = idx as i32;
-
-        // calculate bounding box
-        let extents = self.extents / 2;
-
-        let offset = IVec3 {
-            x: (idx & 0b001) * 2 - 1,
-            y: ((idx & 0b010) >> 1) * 2 - 1,
-            z: ((idx & 0b100) >> 2) * 2 - 1,
-        };
-        let origin = self.origin + (extents * offset);
-
-        Self { origin, extents }
-    }
-
-    /// Checks if the longest side is one.
-    pub fn is_unit(&self) -> bool {
-        self.extents.max_element() == 1
-    }
-
-    /// Checks for ray intersections across planes inside of the bounding box.
-    /// Returns the squared distance if found.
-    ///
-    /// (x, y, z) axes -> (yz, xz, xy) planes
-    pub fn plane_intersections(&self, ray: Ray) -> [Option<f32>; 3] {
-        let min = self.min().as_vec3a();
-        let max = self.max().as_vec3a();
-
-        let origin = self.origin.as_vec3a();
-
-        let dir_x = ray.dir.dot(Vec3A::X);
-        let x = if dir_x != 0.0
-            && dir_x.is_sign_positive() == (origin.x - ray.origin.x).is_sign_positive()
-        {
-            let t = (origin.dot(Vec3A::X) - ray.origin.dot(Vec3A::X)) / dir_x;
-            let i = ray.origin + t * ray.dir;
-            let p = i.yz();
-            if p.cmpge(min.yz()) == BVec2::TRUE && p.cmple(max.yz()) == BVec2::TRUE {
-                Some(i.distance_squared(ray.origin))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let dir_y = ray.dir.dot(Vec3A::Y);
-        let y = if dir_y != 0.0
-            && dir_y.is_sign_positive() == (origin.y - ray.origin.y).is_sign_positive()
-        {
-            let t = (origin.dot(Vec3A::Y) - ray.origin.dot(Vec3A::Y)) / dir_y;
-            let i = ray.origin + t * ray.dir;
-            let p = i.xz();
-            if p.cmpge(min.xz()) == BVec2::TRUE && p.cmple(max.xz()) == BVec2::TRUE {
-                Some(i.distance_squared(ray.origin))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let dir_z = ray.dir.dot(Vec3A::Z);
-        let z = if dir_z != 0.0
-            && dir_z.is_sign_positive() == (origin.z - ray.origin.z).is_sign_positive()
-        {
-            let t = (origin.dot(Vec3A::Z) - ray.origin.dot(Vec3A::Z)) / dir_z;
-            let i = ray.origin + t * ray.dir;
-            let p = i.xy();
-            if p.cmpge(min.xy()) == BVec2::TRUE && p.cmple(max.xy()) == BVec2::TRUE {
-                Some(i.distance_squared(ray.origin))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        [x, y, z]
     }
 
     /// Checks for an intersection with the bounding box along a range of a ray.
@@ -338,78 +195,5 @@ mod tests {
         assert!(bb
             .intersection(Ray::new(Vec3A::ONE * 6.0, Vec3A::ONE), 0.0..f32::INFINITY)
             .is_none());
-    }
-
-    #[test]
-    /// Check for plane intersections.
-    fn planes_intersect() {
-        {
-            let bb = IAabb::new(IVec3::ZERO, IVec3::ONE * 5);
-
-            assert!(matches!(
-                bb.plane_intersections(Ray::new(Vec3A::NEG_ONE * 6.0, Vec3A::ONE)),
-                [Some(_), Some(_), Some(_)]
-            ));
-        }
-
-        {
-            let bb = IAabb::new(IVec3::ZERO, IVec3::ONE * 5);
-
-            assert!(matches!(
-                bb.plane_intersections(Ray::new(Vec3A::NEG_ONE * 2.0, Vec3A::Y)),
-                [None, Some(_), None]
-            ));
-        }
-
-        {
-            let bb = IAabb::new(IVec3::ZERO, IVec3::ONE * 5);
-
-            assert!(matches!(
-                bb.plane_intersections(Ray::new(Vec3A::ONE * 2.0, Vec3A::NEG_Y)),
-                [None, Some(_), None]
-            ));
-        }
-    }
-
-    #[test]
-    /// Check for plane intersections.
-    fn planes_not_intersect() {
-        {
-            let bb = IAabb::new(IVec3::ZERO, IVec3::ONE * 5);
-
-            assert!(matches!(
-                bb.plane_intersections(Ray::new(Vec3A::NEG_ONE * 6.0, Vec3A::Y)),
-                [None, None, None]
-            ));
-        }
-
-        {
-            let bb = IAabb::new(IVec3::ZERO, IVec3::ONE * 5);
-
-            assert!(matches!(
-                bb.plane_intersections(Ray::new(Vec3A::NEG_Y * 6.0, Vec3A::NEG_Y)),
-                [None, None, None]
-            ));
-        }
-    }
-
-    #[test]
-    /// Check for correct indices.
-    fn indices() {
-        let bb = IAabb::new(IVec3::ZERO, 2 * IVec3::ONE);
-
-        assert_eq!(bb.index_of(2 * IVec3::NEG_ONE), None);
-        assert_eq!(bb.index_of(IVec3::NEG_ONE), Some(0b000));
-        assert_eq!(bb.index_of(IVec3::ZERO), Some(0b000));
-        assert_eq!(bb.index_of(IVec3::ONE), Some(0b111));
-        assert_eq!(bb.index_of(2 * IVec3::ONE), Some(0b111));
-        assert_eq!(bb.index_of(3 * IVec3::ONE), None);
-    }
-
-    #[test]
-    fn octants() {
-        let bb = IAabb::new(IVec3::ZERO, 2 * IVec3::ONE);
-        assert_eq!(bb.octant(0b000), IAabb::new(IVec3::NEG_ONE, IVec3::ONE));
-        assert_eq!(bb.octant(0b111), IAabb::new(IVec3::ONE, IVec3::ONE));
     }
 }
