@@ -86,6 +86,20 @@ impl IAabb {
         self.origin + self.extents
     }
 
+    pub fn split(&self, index: usize) -> IAabb
+    {
+        assert!(index < 8, "index must be in range 0-8");
+        
+        let new_extents = self.extents / 2;
+        let offset_x = if(index & 1) == 0 {-new_extents.x} else {new_extents.x};
+        let offset_y = if(index & 2) == 0 {-new_extents.y} else {new_extents.y};
+        let offset_z = if(index & 3) == 0 {-new_extents.y} else {new_extents.y};
+
+        let child_origin = self.origin + IVec3::new(offset_x, offset_y, offset_z);
+        
+        IAabb::new(child_origin, new_extents)
+    }
+
     /// Checks for an intersection with the bounding box along a range of a ray.
     /// Returns the range in which the ray intersects the bounding box if so.
     ///
