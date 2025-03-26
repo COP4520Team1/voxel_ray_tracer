@@ -1,9 +1,9 @@
-use crate::ray_tracer::{types::Ray, RayTracer};
+use crate::ray_tracer::types::Ray;
 use glam::{IVec3, Vec3A};
 
 pub struct Camera {
-    pub img_height: u32,
-    pub img_width: u32,
+    pub img_height: usize,
+    pub img_width: usize,
     pub samples_per_pixel: u32,
     pub max_depth: u32,
 
@@ -30,16 +30,33 @@ pub struct Camera {
     defocus_disk_v: Vec3A,
 }
 
+impl Default for Camera {
+    fn default() -> Self {
+        Self::new(
+            720,
+            1280,
+            12,
+            10,
+            90.0,
+            IVec3::new(90, 90, 90),
+            IVec3::new(0, 0, 0),
+            Vec3A::new(0.0, 1.0, 0.0),
+            0.0,
+            10.0,
+        )
+    }
+}
+
 impl Camera {
     pub fn new(
-        img_height: u32,
-        img_width: u32,
+        img_height: usize,
+        img_width: usize,
         samples_per_pixel: u32,
         max_depth: u32,
         vertical_fov: f32,
         lookfrom: IVec3,
         lookat: IVec3,
-        cam_up: IVec3,
+        cam_up: Vec3A,
         defocus_angle: f32,
         focus_dist: f32,
     ) -> Self {
@@ -53,7 +70,7 @@ impl Camera {
         let viewport_width = viewport_height * img_width as f32 / img_height as f32;
 
         let w = (lookfrom - lookat).as_vec3a().normalize();
-        let u = cam_up.as_vec3a().cross(w).normalize();
+        let u = cam_up.cross(w).normalize();
         let v = w.cross(u);
 
         let viewport_u = viewport_width * u;
@@ -72,16 +89,16 @@ impl Camera {
         let defocus_disk_v = defocus_radius * v;
 
         Self {
-            img_height: 144,
-            img_width: 144,
-            samples_per_pixel: 12,
-            max_depth: 10,
-            vertical_fov: 90.0,
-            lookfrom: IVec3::new(0, 0, 0),
-            lookat: IVec3::new(0, 0, -1),
-            cam_up: Vec3A::new(0.0, 1.0, 0.0),
-            defocus_angle: 0.0,
-            focus_dist: 10.0,
+            img_height,
+            img_width,
+            samples_per_pixel,
+            max_depth,
+            vertical_fov,
+            lookfrom,
+            lookat,
+            cam_up,
+            defocus_angle,
+            focus_dist,
             pixel_samples_scale,
             center,
             pixel00_loc,
@@ -95,7 +112,7 @@ impl Camera {
         }
     }
 
-    pub async fn get_ray(&self, i: u32, j: u32) -> Ray {
+    pub fn get_ray(&self, i: usize, j: usize) -> Ray {
         let offset = self.sample_square();
         let pixel_sample = self.pixel00_loc.as_vec3a()
             + ((i as f32 + offset.x) * self.pixel_delta_u)
