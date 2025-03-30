@@ -33,12 +33,12 @@ pub struct Camera {
 impl Default for Camera {
     fn default() -> Self {
         Self::new(
-            720,
-            1280,
+            4320,
+            7680,
             12,
             10,
             90.0,
-            IVec3::new(90, 90, 90),
+            IVec3::new(240, 240, 240),
             IVec3::new(0, 0, 0),
             Vec3A::new(0.0, 1.0, 0.0),
             0.0,

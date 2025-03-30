@@ -1,3 +1,5 @@
+use std::fmt;
+
 use glam::IVec3;
 
 use crate::voxel::{Voxel, VoxelGenerator};
@@ -13,194 +15,269 @@ pub struct SparseStorage {
 
 impl Scene for SparseStorage {
     fn from_voxels(generator: &VoxelGenerator, bb: IAabb) -> Self {
-        todo!()
+        let octree = Octree::from_voxels(generator, bb);
+        println!("Length: {}", octree.len());
+        Self { octree }
     }
 
     fn trace(&self, ray: Ray) -> Option<Voxel> {
-        todo!()
+        self.octree.trace(ray)
     }
 }
 
+/// Simple octree implementation with fixed size.
 pub struct Octree {
-    pub nodes: Pool<Node>,
-    pub root: NodeId,
+    bb: IAabb,
+    nodes: Vec<Node>,
 }
 
-pub struct Pool<T> {
-    elements: Vec<T>,
-}
+impl fmt::Debug for Octree {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut set = f.debug_set();
 
-impl<T> Pool<T> {
-    pub fn new() -> Self {
-        Self {
-            elements: Vec::new(),
-        }
-    }
-
-    pub fn insert(&mut self, item: T) -> NodeId {
-        self.elements.push(item);
-        NodeId(self.elements.len() as u32 - 1)
-    }
-
-    pub fn get(&self, id: NodeId) -> Option<&T> {
-        self.elements.get(id.0 as usize)
-    }
-
-    pub fn get_mut(&mut self, id: NodeId) -> Option<&mut T> {
-        self.elements.get_mut(id.0 as usize)
-    }
-}
-#[derive(Clone, Copy)]
-pub struct NodeId(pub u32);
-
-pub struct Node {
-    pub aabb: IAabb,
-    pub ntype: NodeType,
-    pub parent: Option<NodeId>,
-}
-
-impl Default for Node {
-    fn default() -> Self {
-        Node {
-            aabb: IAabb::new(IVec3::ZERO, IVec3::ZERO),
-            ntype: Default::default(),
-            parent: Default::default(),
-        }
-    }
-}
-
-impl Node {
-    pub(crate) fn from_aabb(aabb: IAabb, parent: Option<NodeId>) -> Self {
-        Self {
-            aabb,
-            parent,
-            ..Default::default() // makes ntype the default (empty)
-        }
-    }
-}
-
-#[derive(Default, Clone)]
-pub enum NodeType {
-    #[default] // makes default empty
-    Empty,
-    Leaf(Voxel),
-    Branch(Branch),
-}
-
-#[derive(Clone)]
-pub struct Branch {
-    pub children: [NodeId; 8],
-}
-
-impl Branch {
-    pub(crate) fn new(children: [NodeId; 8]) -> Self {
-        Branch { children }
-    }
-    pub fn x0_y0_z0(&self) -> NodeId {
-        self.children[0]
-    }
-    pub fn x1_y0_z0(&self) -> NodeId {
-        self.children[1]
-    }
-    pub fn x0_y1_z0(&self) -> NodeId {
-        self.children[2]
-    }
-    pub fn x0_y0_z1(&self) -> NodeId {
-        self.children[3]
-    }
-    pub fn x1_y1_z0(&self) -> NodeId {
-        self.children[4]
-    }
-    pub fn x1_y0_z1(&self) -> NodeId {
-        self.children[5]
-    }
-    pub fn x0_y1_z1(&self) -> NodeId {
-        self.children[6]
-    }
-    pub fn x1_y1_z1(&self) -> NodeId {
-        self.children[7]
-    }
-    pub fn center(&self, nodes: &Pool<Node>) -> IVec3 {
-        let mut sum = IVec3::ZERO;
-        for &child_id in &self.children {
-            if let Some(child) = nodes.get(child_id) {
-                sum += child.aabb.origin;
+        fn fmt_node(
+            idx: usize,
+            bb: IAabb,
+            nodes: &[Node],
+            set: &mut fmt::DebugSet<'_, '_>,
+        ) -> fmt::Result {
+            match nodes[idx] {
+                Node::Branch(branches) => {
+                    for z in 0..2 {
+                        for y in 0..2 {
+                            for x in 0..2 {
+                                let local_idx = x | y << 1 | z << 2;
+                                let Some(next_idx) = branches[local_idx] else {
+                                    continue;
+                                };
+                                let next_bb = bb.octant(local_idx);
+                                fmt_node(next_idx, next_bb, nodes, set)?;
+                            }
+                        }
+                    }
+                }
+                Node::Leaf(leaves) => {
+                    for z in 0..2 {
+                        for y in 0..2 {
+                            for x in 0..2 {
+                                let local_idx = x | y << 1 | z << 2;
+                                let Some(leaf) = leaves[local_idx] else {
+                                    continue;
+                                };
+                                let pos = IVec3::new(
+                                    x as i32 + bb.origin.x,
+                                    y as i32 + bb.origin.x,
+                                    z as i32 + bb.origin.x,
+                                );
+                                set.entry(&(pos, leaf));
+                            }
+                        }
+                    }
+                }
             }
+
+            Ok(())
         }
-        sum / 8
+
+        fmt_node(0, self.bb, &self.nodes, &mut set)?;
+
+        set.finish()
     }
 }
 
 impl Octree {
-    pub fn insert(&mut self, voxel: Voxel) {
-        let mut node_id = self.root;
-        while let Some(node) = self.nodes.get_mut(node_id) {
-            match node.ntype {
-                NodeType::Empty => {
-                    node.ntype = NodeType::Leaf(voxel);
-                    return;
+    pub fn new(bb: IAabb) -> Self {
+        // Octrees are cubes with sides of power of two length, so make sure we have a cube that can store the requested space.
+        let bb = bb.next_pow2();
+        Self {
+            bb,
+            nodes: vec![Node::from_aabb(bb)], // always will be branches, but this handles an edge case of extents being zero
+        }
+    }
+
+    pub fn from_voxels(generator: &VoxelGenerator, bb: IAabb) -> Self {
+        let mut octree = Self::new(bb);
+        bb.iter().for_each(|pos| {
+            assert!(
+                octree.set(pos, generator.lookup(pos)),
+                "voxel was out of bounds"
+            )
+        });
+        octree
+    }
+
+    /// Sets a new voxel (returns true if none).
+    pub fn set(&mut self, pos: IVec3, voxel: Option<Voxel>) -> bool {
+        match voxel {
+            Some(voxel) => self.insert(pos, voxel),
+            None => true,
+        }
+    }
+
+    /// Returns the number of voxels in the scene.
+    pub fn len(&self) -> usize {
+        self.nodes[0].len(&self.nodes)
+    }
+
+    /// Inserts a new voxel or returns false if out of bounds.
+    pub fn insert(&mut self, pos: IVec3, voxel: Voxel) -> bool {
+        let mut curr_idx = 0;
+        let mut bb = self.bb;
+        // find a leaf node for the voxel
+        loop {
+            // get an index for the current aabb and check bounds (should return some for all nodes under the root)
+            let Some(idx) = bb.index_of(pos) else {
+                return false;
+            };
+
+            let new_idx = self.nodes.len();
+
+            match &mut self.nodes[curr_idx] {
+                Node::Branch(branches) => {
+                    bb = bb.octant(idx);
+                    curr_idx = match branches[idx] {
+                        Some(i) => i,
+                        None => {
+                            // create a new node if one doesn't already exist
+                            branches[idx] = Some(new_idx);
+                            self.nodes.push(Node::from_aabb(bb));
+                            new_idx
+                        }
+                    };
                 }
-                NodeType::Leaf(existing_voxel) => {
-                    if existing_voxel == voxel {
-                        return;
-                    }
-                    self.split(node_id, existing_voxel, voxel);
-                    return;
-                }
-                NodeType::Branch(ref mut branch) => {
-                    let child_index = Self::get_child_index(node.aabb, voxel.pos);
-                    node_id = branch.children[child_index];
+                Node::Leaf(leaves) => {
+                    leaves[idx] = Some(voxel);
+                    return true;
                 }
             }
         }
     }
 
-    fn split(&mut self, node_id: NodeId, old_voxel: Voxel, new_voxel: Voxel) {
-        let Some(leaf) = self.nodes.get(node_id) else {
-            return;
-        };
+    pub fn get(&self, pos: IVec3) -> Option<Voxel> {
+        let mut curr_idx = 0;
+        let mut bb = self.bb;
+        loop {
+            let idx = bb.index_of(pos)?;
+            let octant_bb = bb.octant(idx);
 
-        let leaf_aabb = leaf.aabb;
-
-        let mut branch = Branch {
-            children: [NodeId(0); 8],
-        };
-        for i in 0..8 {
-            let new_aabb = leaf_aabb.split(i);
-            branch.children[i] = self.nodes.insert(Node::from_aabb(new_aabb, Some(node_id)));
+            match &self.nodes[curr_idx] {
+                Node::Branch(branches) => {
+                    bb = octant_bb;
+                    curr_idx = branches[idx]?;
+                }
+                Node::Leaf(leaves) => {
+                    return leaves[idx];
+                }
+            }
         }
-        let child_index_old = Self::get_child_index(leaf_aabb, old_voxel.pos);
-        let child_index_new = Self::get_child_index(leaf_aabb, new_voxel.pos);
-
-        if let Some(child) = self.nodes.get_mut(branch.children[child_index_old]) {
-            child.ntype = NodeType::Leaf(new_voxel);
-        }
-
-        if let Some(child) = self.nodes.get_mut(branch.children[child_index_new]) {
-            child.ntype = NodeType::Leaf(new_voxel);
-        }
-
-        let leaf = self
-            .nodes
-            .get_mut(node_id)
-            .expect("leaf should still be present!");
-        leaf.ntype = NodeType::Branch(branch);
     }
 
-    fn get_child_index(aabb: IAabb, pos: IVec3) -> usize {
-        let center = (aabb.min() + aabb.max()) / 2;
-        let mut index = 0;
-        if pos.x >= center.x {
-            index |= 1;
-        }
-        if pos.y >= center.y {
-            index |= 2;
-        }
-        if pos.z >= center.z {
-            index |= 4;
-        }
-        index
+    fn trace(&self, ray: Ray) -> Option<Voxel> {
+        // check if ray is in branch aabb
+        let range = self.bb.intersection(ray, 0.01..f32::INFINITY)?;
+
+        let start_ray = Ray::new(ray.origin + range.start * ray.dir, ray.dir);
+
+        self.nodes[0].trace(&self.nodes, self.bb, start_ray)
     }
+}
+
+#[derive(Debug)]
+enum Node {
+    Branch([Option<usize>; 8]),
+    Leaf([Option<Voxel>; 8]),
+}
+
+impl Node {
+    /// Creates a new node based on the size of the aabb.
+    pub fn from_aabb(bb: IAabb) -> Self {
+        if bb.is_unit() {
+            Self::Leaf(Default::default())
+        } else {
+            Self::Branch(Default::default())
+        }
+    }
+
+    /// Returns the number of voxels for this node.
+    pub fn len(&self, nodes: &[Node]) -> usize {
+        let mut count = 0;
+        match self {
+            Node::Branch(branches) => {
+                for z in 0..2 {
+                    for y in 0..2 {
+                        for x in 0..2 {
+                            let local_idx = x | y << 1 | z << 2;
+                            let Some(next_idx) = branches[local_idx] else {
+                                continue;
+                            };
+                            count += nodes[next_idx].len(nodes);
+                        }
+                    }
+                }
+            }
+            Node::Leaf(leaves) => {
+                for z in 0..2 {
+                    for y in 0..2 {
+                        for x in 0..2 {
+                            let local_idx = x | y << 1 | z << 2;
+                            if leaves[local_idx].is_some() {
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        count
+    }
+
+    /// Trace a ray inside of this node.
+    pub fn trace(&self, nodes: &[Node], bb: IAabb, ray: Ray) -> Option<Voxel> {
+        let mut idx = ray.origin.cmpgt(bb.origin.as_vec3a()).bitmask() as usize;
+        let mut dirs = ordered_dirs(bb, ray);
+
+        match self {
+            Node::Branch(branches) => loop {
+                let Some(next_node) = branches[idx] else {
+                    idx ^= 1 << dirs.next()?;
+                    continue;
+                };
+
+                let next_bb = bb.octant(idx);
+
+                let Some(range) = next_bb.intersection(ray, 0.01..f32::INFINITY) else {
+                    idx ^= 1 << dirs.next()?;
+                    continue;
+                };
+
+                let start_ray = Ray::new(ray.origin + range.start * ray.dir, ray.dir);
+
+                let Some(voxel) = nodes[next_node].trace(nodes, next_bb, start_ray) else {
+                    idx ^= 1 << dirs.next()?;
+                    continue;
+                };
+
+                return Some(voxel);
+            },
+            Node::Leaf(leaves) => loop {
+                let Some(voxel) = leaves[idx] else {
+                    idx ^= 1 << dirs.next()?;
+                    continue;
+                };
+                return Some(voxel);
+            },
+        }
+    }
+}
+
+/// Sorts and filters the directions to toggle.
+fn ordered_dirs(bb: IAabb, ray: Ray) -> impl Iterator<Item = usize> {
+    let tests = bb.plane_intersections(ray);
+    let mut axes = [(0, tests[0]), (1, tests[1]), (2, tests[2])];
+    axes.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
+    axes.into_iter()
+        .filter(move |(_, s)| s.is_some())
+        .map(|(i, _)| i)
 }
 
 #[cfg(test)]
@@ -211,21 +288,383 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_octree_insert() {
-        let mut octree = Octree {
-            nodes: Pool::new(),
-            root: NodeId(0),
-        };
-        let voxel = Voxel {
-            pos: IVec3::new(0, 0, 0),
-            color: U8Vec3::new(255, 0, 0),
-        };
+    fn test_octree_insert_and_get_one() {
+        let mut octree = Octree::new(IAabb::new(IVec3::ZERO, IVec3::ONE));
 
-        octree.insert(voxel);
+        {
+            let inserted = octree.insert(IVec3::ONE, Voxel { color: U8Vec3::ONE });
+            assert!(inserted);
+        }
 
-        assert!(matches!(
-            octree.nodes.get(octree.root).unwrap().ntype,
-            NodeType::Leaf(_)
-        ))
+        println!("{:?}", octree.nodes);
+
+        {
+            let got = octree.get(IVec3::ONE);
+            assert_eq!(got, Some(Voxel { color: U8Vec3::ONE }));
+        }
+
+        {
+            let inserted = octree.insert(
+                IVec3::ZERO,
+                Voxel {
+                    color: 2 * U8Vec3::ONE,
+                },
+            );
+            assert!(inserted);
+        }
+
+        println!("{:?}", octree.nodes);
+
+        {
+            let inserted = octree.insert(
+                2 * IVec3::NEG_ONE,
+                Voxel {
+                    color: 3 * U8Vec3::ONE,
+                },
+            );
+            assert!(!inserted);
+        }
+
+        println!("{:?}", octree.nodes);
+
+        {
+            let got = octree.get(IVec3::ZERO);
+            assert_eq!(
+                got,
+                Some(Voxel {
+                    color: 2 * U8Vec3::ONE
+                })
+            );
+        }
+
+        {
+            let got = octree.get(IVec3::NEG_ONE);
+            assert_eq!(got, None);
+        }
+
+        {
+            let got = octree.get(2 * IVec3::NEG_ONE);
+            assert_eq!(got, None);
+        }
+
+        {
+            let got = octree.get(IVec3::ONE);
+            assert_eq!(got, Some(Voxel { color: U8Vec3::ONE }));
+        }
+
+        {
+            let inserted = octree.insert(
+                IVec3::ONE,
+                Voxel {
+                    color: 4 * U8Vec3::ONE,
+                },
+            );
+            assert!(inserted);
+        }
+
+        println!("{:?}", octree.nodes);
+
+        {
+            let got = octree.get(IVec3::ONE);
+            assert_eq!(
+                got,
+                Some(Voxel {
+                    color: 4 * U8Vec3::ONE
+                })
+            );
+        }
+
+        {
+            let inserted = octree.insert(
+                IVec3::new(1, 0, 1),
+                Voxel {
+                    color: U8Vec3::new(0, 1, 0),
+                },
+            );
+            assert!(inserted);
+        }
+
+        println!("{:?}", octree.nodes);
+
+        {
+            let got = octree.get(IVec3::new(1, 0, 1));
+            assert_eq!(
+                got,
+                Some(Voxel {
+                    color: U8Vec3::new(0, 1, 0)
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn test_octree_insert_and_get_two() {
+        let mut octree = Octree::new(IAabb::new(IVec3::ZERO, 2 * IVec3::ONE));
+
+        println!("{:?}", octree.nodes);
+
+        {
+            let inserted = octree.insert(IVec3::ONE, Voxel { color: U8Vec3::ONE });
+            assert!(inserted);
+        }
+
+        println!("{:?}", octree.nodes);
+
+        {
+            let got = octree.get(IVec3::ONE);
+            assert_eq!(got, Some(Voxel { color: U8Vec3::ONE }));
+        }
+
+        {
+            let inserted = octree.insert(
+                IVec3::ZERO,
+                Voxel {
+                    color: 2 * U8Vec3::ONE,
+                },
+            );
+            assert!(inserted);
+        }
+
+        println!("{:?}", octree.nodes);
+
+        {
+            let inserted = octree.insert(
+                IVec3::NEG_ONE,
+                Voxel {
+                    color: 3 * U8Vec3::ONE,
+                },
+            );
+            assert!(inserted);
+        }
+
+        println!("{:?}", octree.nodes);
+
+        {
+            let got = octree.get(IVec3::ZERO);
+            assert_eq!(
+                got,
+                Some(Voxel {
+                    color: 2 * U8Vec3::ONE
+                })
+            );
+        }
+
+        {
+            let got = octree.get(IVec3::NEG_ONE);
+            assert_eq!(
+                got,
+                Some(Voxel {
+                    color: 3 * U8Vec3::ONE
+                })
+            );
+        }
+
+        {
+            let got = octree.get(IVec3::ONE);
+            assert_eq!(got, Some(Voxel { color: U8Vec3::ONE }));
+        }
+
+        {
+            let inserted = octree.insert(
+                IVec3::ONE,
+                Voxel {
+                    color: 4 * U8Vec3::ONE,
+                },
+            );
+            assert!(inserted);
+        }
+
+        println!("{:?}", octree.nodes);
+
+        {
+            let got = octree.get(IVec3::ONE);
+            assert_eq!(
+                got,
+                Some(Voxel {
+                    color: 4 * U8Vec3::ONE
+                })
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod trace_tests {
+    use glam::{IVec3, U8Vec3, Vec3A};
+
+    use crate::{
+        ray_tracer::types::{IAabb, Ray},
+        voxel::Voxel,
+    };
+
+    use super::Octree;
+
+    #[test]
+    fn get_voxel_full() {
+        let mut octree = Octree::new(IAabb::new(IVec3::ZERO, IVec3::ONE));
+        octree.insert(IVec3::new(0, 0, 0), Voxel { color: U8Vec3::ONE });
+        octree.insert(IVec3::new(1, 0, 0), Voxel { color: U8Vec3::ONE });
+        octree.insert(IVec3::new(0, 1, 0), Voxel { color: U8Vec3::ONE });
+        octree.insert(IVec3::new(1, 1, 0), Voxel { color: U8Vec3::ONE });
+        octree.insert(IVec3::new(0, 0, 1), Voxel { color: U8Vec3::ONE });
+        octree.insert(IVec3::new(1, 0, 1), Voxel { color: U8Vec3::ONE });
+        octree.insert(IVec3::new(0, 1, 1), Voxel { color: U8Vec3::ONE });
+        octree.insert(IVec3::new(1, 1, 1), Voxel { color: U8Vec3::ONE });
+
+        {
+            let ray = Ray::new(Vec3A::new(0.0, -5.0, 0.0), Vec3A::Y);
+            assert!(octree.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = octree.trace(ray).expect("voxel not found");
+            assert_eq!(voxel, Voxel { color: U8Vec3::ONE });
+        }
+    }
+
+    #[test]
+    fn get_voxel_one() {
+        let mut octree = Octree::new(IAabb::new(IVec3::ZERO, IVec3::ONE));
+        octree.insert(IVec3::new(0, 0, 0), Voxel { color: U8Vec3::ONE });
+
+        {
+            let ray = Ray::new(Vec3A::new(-0.5, -5.0, -0.5), Vec3A::Y);
+            assert!(octree.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = octree.trace(ray).expect("voxel not found");
+            assert_eq!(voxel, Voxel { color: U8Vec3::ONE });
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(0.5, -5.0, 0.5), Vec3A::Y);
+            assert!(octree.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = octree.trace(ray);
+            assert_eq!(voxel, None);
+        }
+    }
+
+    #[test]
+    fn get_voxel_none() {
+        let octree = Octree::new(IAabb::new(IVec3::ZERO, IVec3::ONE));
+
+        {
+            let ray = Ray::new(Vec3A::new(0.5, -5.0, 0.5), Vec3A::Y);
+            assert!(octree.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = octree.trace(ray);
+            assert_eq!(voxel, None);
+        }
+    }
+
+    #[test]
+    fn get_voxel_dirs() {
+        let mut octree = Octree::new(IAabb::new(IVec3::ZERO, 2 * IVec3::ONE));
+
+        macro_rules! add {
+            ($x:expr, $y:expr, $z:expr) => {{
+                let color = U8Vec3::new($x, $y, $z);
+                octree.insert(color.as_ivec3(), Voxel { color });
+            }};
+        }
+
+        add!(0, 0, 0);
+        add!(1, 0, 0);
+        add!(0, 1, 0);
+        add!(1, 1, 0);
+        add!(0, 0, 1);
+        add!(1, 0, 1);
+        add!(0, 1, 1);
+        add!(1, 1, 1);
+
+        {
+            let ray = Ray::new(Vec3A::new(-0.5, -5.0, -0.5), Vec3A::Y);
+            assert!(octree.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = octree.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(0, 0, 0)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(-5.0, -0.5, 0.5), Vec3A::X);
+            assert!(octree.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = octree.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(0, 0, 1)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(-0.5, 5.0, -0.5), Vec3A::NEG_Y);
+            assert!(octree.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = octree.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(0, 1, 0)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(-0.5, 5.0, 0.5), Vec3A::NEG_Y);
+            assert!(octree.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = octree.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(0, 1, 1)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(5.0, -0.5, -0.5), Vec3A::NEG_X);
+            assert!(octree.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = octree.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(1, 0, 0)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(5.0, -0.5, 0.5), Vec3A::NEG_X);
+            assert!(octree.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = octree.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(1, 0, 1)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(0.5, 0.5, -5.0), Vec3A::Z);
+            assert!(octree.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = octree.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(1, 1, 0)
+                }
+            );
+        }
+
+        {
+            let ray = Ray::new(Vec3A::new(0.5, 0.5, 5.0), Vec3A::NEG_Z);
+            assert!(octree.bb.intersection(ray, 0.01..f32::INFINITY).is_some());
+            let voxel = octree.trace(ray).expect("voxel not found");
+            assert_eq!(
+                voxel,
+                Voxel {
+                    color: U8Vec3::new(1, 1, 1)
+                }
+            );
+        }
     }
 }

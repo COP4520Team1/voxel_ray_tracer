@@ -3,10 +3,9 @@ use noise::{NoiseFn, Perlin};
 use rand::Rng;
 
 /// Data associated with a single voxel.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Voxel {
     pub color: U8Vec3,
-    pub pos: IVec3,
 }
 
 /// A generator that produces voxels with y coordinate calculated by Perlin noise function mapped over x and z coordinates, and voxel color is mapped from max voxel height at its x and z coordinate

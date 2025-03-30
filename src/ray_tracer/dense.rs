@@ -27,20 +27,21 @@ impl DenseStorage {
 
         Self { data, bb }
     }
+
+    pub fn len(&self) -> usize {
+        self.data.into_iter().filter(|i| i.is_some()).count()
+    }
 }
 
 /// Size of a voxel in the grid.
 const VOXEL_SIZE: f32 = 1.0;
 
-/// Maximum number of steps to try to get a voxel in the grid.
-///
-/// TODO: Should we have a maximum, when we can just test out of bounds?
-const MAX_STEPS: usize = 256;
-
 impl Scene for DenseStorage {
     fn from_voxels(generator: &VoxelGenerator, bb: IAabb) -> Self {
         let data = bb.iter().map(|pos| generator.lookup(pos)).collect();
-        Self { data, bb }
+        let this = Self { data, bb };
+        println!("Length: {}", this.len());
+        this
     }
 
     fn trace(&self, ray: Ray) -> Option<Voxel> {
@@ -68,7 +69,7 @@ impl Scene for DenseStorage {
         let step = step.as_ivec3();
 
         // use conditions to iterate over voxel spaces
-        for _ in 0..MAX_STEPS {
+        loop {
             let voxel_entry = self.data.get(
                 curr_idx.z as usize
                     + self.bb.width()
