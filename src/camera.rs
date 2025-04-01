@@ -21,9 +21,9 @@ impl Default for Camera {
             7680,
             4320,
             90.0,
-            Vec3A::new(240.0, 240.0, 240.0),
-            Vec3A::new(0.0, 0.0, 0.0),
-            Vec3A::new(0.0, 1.0, 0.0),
+            240.0 * Vec3A::ONE,
+            Vec3A::ZERO,
+            Vec3A::Y,
             10.0,
         )
     }
@@ -31,15 +31,7 @@ impl Default for Camera {
 
 impl Camera {
     pub fn from_res_and_pos(width: usize, height: usize, pos: Vec3A) -> Self {
-        Self::new(
-            width,
-            height,
-            90.0,
-            pos,
-            Vec3A::new(0.0, 0.0, 0.0),
-            Vec3A::new(0.0, 1.0, 0.0),
-            10.0,
-        )
+        Self::new(width, height, 90.0, pos, Vec3A::ZERO, Vec3A::Y, 10.0)
     }
 
     pub fn new(

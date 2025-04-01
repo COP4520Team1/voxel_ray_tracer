@@ -72,7 +72,7 @@ pub fn export_image(fb: Framebuffer, path: impl AsRef<Path>) -> image::ImageResu
         }
     }
 
-    img.save(path).unwrap();
+    img.save(path)?;
 
     Ok(())
 }

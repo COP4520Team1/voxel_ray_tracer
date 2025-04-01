@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::absolute;
 
 use clap::{Parser, ValueEnum};
 use glam::IVec3;
@@ -28,7 +28,7 @@ struct Cli {
     backend: Option<StorageMode>,
 
     /// Scene size
-    #[arg(short, long, default_value_t = 50)]
+    #[arg(short, long, default_value_t = 200)]
     size: u32,
 
     /// Scene position (x,y,z) e.g. 25,25,25
@@ -43,12 +43,20 @@ struct Cli {
     #[arg(short, long, default_value = "render.png")]
     out: String,
 
+    /// Image resolution width
+    #[arg(short, long, default_value_t = 7680)]
+    width: usize,
+
+    /// Image resolution height
+    #[arg(short, long, default_value_t = 4320)]
+    height: usize,
+
     /// Enable octree debug mode
     #[arg(short, long)]
     debug: bool,
 }
 
-fn main() -> Result<(), &'static str> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup tracing scaffold.
     #[cfg(feature = "trace")]
     {
@@ -61,50 +69,51 @@ fn main() -> Result<(), &'static str> {
     };
 
     let Cli {
-        backend: storage,
+        backend,
         size,
         position,
         seed,
         out,
+        width,
+        height,
         debug,
     } = Cli::parse(); // Parses command-line arguments
 
     // Print parsed arguments
-    println!("Storage Mode: {:?}", storage);
-    println!("Scene Size: {}", size);
+
+    let backend = backend.unwrap_or_default();
+
+    println!("Storage Backend: {backend:?}");
+    println!("Scene Size: {size}");
 
     let position = match &position {
         Some(pos) if pos.len() == 3 => {
             println!("Scene Position: {:?}", pos);
             IVec3::from_slice(pos)
         }
-        Some(_) => return Err("Invalid position format! Use --pos x,y,z"),
-        None => (size as i32 - 10).max(10) * IVec3::ONE,
+        Some(_) => return Err("Invalid position format! Use -p x,y,z".into()),
+        None => size as i32 * IVec3::ONE,
     };
 
-    println!("Seed: {:?}", seed.unwrap_or_else(|| rand::random()));
+    println!("Position: {position}");
 
-    let output_path = {
-        let path = PathBuf::from(&out);
-        if path.is_absolute() {
-            path
-        } else {
-            PathBuf::from("./").join(path)
-        }
-    };
+    println!("Seed: {seed:?}");
+
+    let output_path = absolute(out)?;
 
     println!("Output File: {}", output_path.display());
+    println!("Resolution: {width}x{height}");
 
     let config = Config {
         seed,
-        res_width: 7680,
-        res_height: 4320,
+        res_width: width,
+        res_height: height,
         camera_pos: position.as_vec3a(),
         size,
         debug,
     };
 
-    let fb = match storage.unwrap_or_default() {
+    let fb = match backend {
         StorageMode::Sparse => {
             // Create ray tracer.
             println!("Constructing scene...");
@@ -125,7 +134,7 @@ fn main() -> Result<(), &'static str> {
 
     // Export image.
     println!("Saving image...");
-    export_image(fb, out).expect("failed to export image");
+    export_image(fb, output_path).expect("failed to export image");
 
     Ok(())
 }

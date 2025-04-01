@@ -29,7 +29,7 @@ impl<T: Scene + Sync> RayTracer<T> {
         #[cfg(feature = "trace")]
         let _span = trace_span!("ray_tracer_new").entered();
 
-        let bb = IAabb::new(IVec3::ZERO, config.size * IVec3::ONE);
+        let bb = IAabb::new(IVec3::ZERO, config.size as i32 * IVec3::ONE);
         let generator = config
             .seed
             .map(VoxelGenerator::new_from_seed)
@@ -80,7 +80,7 @@ impl<T: Scene + Sync> RayTracer<T> {
 /// Ray tracer configuration.
 pub struct Config {
     pub seed: Option<u32>,
-    pub size: i32,
+    pub size: u32,
     pub camera_pos: Vec3A,
     pub res_width: usize,
     pub res_height: usize,
