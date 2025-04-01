@@ -1,8 +1,13 @@
-use std::fmt;
+use std::{fmt, num::NonZeroUsize};
 
-use glam::IVec3;
+use glam::{IVec3, U8Vec3};
 
 use crate::voxel::{Voxel, VoxelGenerator};
+
+#[cfg(feature = "trace")]
+use tracing::*;
+
+mod lookup_table;
 
 use super::{
     types::{IAabb, Ray},
@@ -16,12 +21,19 @@ pub struct SparseStorage {
 impl Scene for SparseStorage {
     fn from_voxels(generator: &VoxelGenerator, bb: IAabb) -> Self {
         let octree = Octree::from_voxels(generator, bb);
-        println!("Length: {}", octree.len());
+
+        #[cfg(feature = "trace")]
+        debug!("length" = octree.len());
+
         Self { octree }
     }
 
-    fn trace(&self, ray: Ray) -> Option<Voxel> {
-        self.octree.trace(ray)
+    fn trace(&self, ray: Ray, debug: bool) -> Option<Voxel> {
+        if debug {
+            self.octree.debug_trace(ray)
+        } else {
+            self.octree.trace(ray)
+        }
     }
 }
 
@@ -51,7 +63,7 @@ impl fmt::Debug for Octree {
                                     continue;
                                 };
                                 let next_bb = bb.octant(local_idx);
-                                fmt_node(next_idx, next_bb, nodes, set)?;
+                                fmt_node(next_idx.get(), next_bb, nodes, set)?;
                             }
                         }
                     }
@@ -87,6 +99,9 @@ impl fmt::Debug for Octree {
 
 impl Octree {
     pub fn new(bb: IAabb) -> Self {
+        #[cfg(feature = "trace")]
+        let _span = trace_span!("octree_new").entered();
+
         // Octrees are cubes with sides of power of two length, so make sure we have a cube that can store the requested space.
         let bb = bb.next_pow2();
         Self {
@@ -96,6 +111,9 @@ impl Octree {
     }
 
     pub fn from_voxels(generator: &VoxelGenerator, bb: IAabb) -> Self {
+        #[cfg(feature = "trace")]
+        let _span = trace_span!("octree_from_voxels").entered();
+
         let mut octree = Self::new(bb);
         bb.iter().for_each(|pos| {
             assert!(
@@ -136,10 +154,11 @@ impl Octree {
                 Node::Branch(branches) => {
                     bb = bb.octant(idx);
                     curr_idx = match branches[idx] {
-                        Some(i) => i,
+                        Some(i) => i.get(),
                         None => {
                             // create a new node if one doesn't already exist
-                            branches[idx] = Some(new_idx);
+                            branches[idx] =
+                                Some(NonZeroUsize::new(new_idx).expect("should be nonzero"));
                             self.nodes.push(Node::from_aabb(bb));
                             new_idx
                         }
@@ -163,7 +182,7 @@ impl Octree {
             match &self.nodes[curr_idx] {
                 Node::Branch(branches) => {
                     bb = octant_bb;
-                    curr_idx = branches[idx]?;
+                    curr_idx = branches[idx]?.get();
                 }
                 Node::Leaf(leaves) => {
                     return leaves[idx];
@@ -173,6 +192,9 @@ impl Octree {
     }
 
     fn trace(&self, ray: Ray) -> Option<Voxel> {
+        #[cfg(feature = "trace")]
+        let _span = trace_span!("octree_trace").entered();
+
         // check if ray is in branch aabb
         let range = self.bb.intersection(ray, 0.01..f32::INFINITY)?;
 
@@ -180,11 +202,23 @@ impl Octree {
 
         self.nodes[0].trace(&self.nodes, self.bb, start_ray)
     }
+
+    fn debug_trace(&self, ray: Ray) -> Option<Voxel> {
+        #[cfg(feature = "trace")]
+        let _span = trace_span!("octree_debug_trace").entered();
+
+        // check if ray is in branch aabb
+        let range = self.bb.intersection(ray, 0.01..f32::INFINITY)?;
+
+        let start_ray = Ray::new(ray.origin + range.start * ray.dir, ray.dir);
+
+        self.nodes[0].debug_trace(&self.nodes, self.bb, start_ray)
+    }
 }
 
 #[derive(Debug)]
 enum Node {
-    Branch([Option<usize>; 8]),
+    Branch([Option<NonZeroUsize>; 8]),
     Leaf([Option<Voxel>; 8]),
 }
 
@@ -210,7 +244,7 @@ impl Node {
                             let Some(next_idx) = branches[local_idx] else {
                                 continue;
                             };
-                            count += nodes[next_idx].len(nodes);
+                            count += nodes[next_idx.get()].len(nodes);
                         }
                     }
                 }
@@ -233,27 +267,29 @@ impl Node {
 
     /// Trace a ray inside of this node.
     pub fn trace(&self, nodes: &[Node], bb: IAabb, ray: Ray) -> Option<Voxel> {
+        #[cfg(feature = "trace")]
+        let _span = trace_span!("node_trace").entered();
+
+        let mut start_ray = ray;
         let mut idx = ray.origin.cmpgt(bb.origin.as_vec3a()).bitmask() as usize;
-        let mut dirs = ordered_dirs(bb, ray);
+        let tests = bb.plane_intersections(ray);
+        let mut dirs = sort_dirs(tests);
 
         match self {
             Node::Branch(branches) => loop {
                 let Some(next_node) = branches[idx] else {
-                    idx ^= 1 << dirs.next()?;
+                    let next_dir = dirs.next()?;
+                    idx ^= 1 << next_dir;
+                    start_ray.origin = ray.origin + tests[next_dir].unwrap() * ray.dir;
                     continue;
                 };
 
                 let next_bb = bb.octant(idx);
 
-                let Some(range) = next_bb.intersection(ray, 0.01..f32::INFINITY) else {
-                    idx ^= 1 << dirs.next()?;
-                    continue;
-                };
-
-                let start_ray = Ray::new(ray.origin + range.start * ray.dir, ray.dir);
-
-                let Some(voxel) = nodes[next_node].trace(nodes, next_bb, start_ray) else {
-                    idx ^= 1 << dirs.next()?;
+                let Some(voxel) = nodes[next_node.get()].trace(nodes, next_bb, start_ray) else {
+                    let next_dir = dirs.next()?;
+                    idx ^= 1 << next_dir;
+                    start_ray.origin = ray.origin + tests[next_dir].unwrap() * ray.dir;
                     continue;
                 };
 
@@ -261,23 +297,109 @@ impl Node {
             },
             Node::Leaf(leaves) => loop {
                 let Some(voxel) = leaves[idx] else {
-                    idx ^= 1 << dirs.next()?;
+                    let next_dir = dirs.next()?;
+                    idx ^= 1 << next_dir;
+                    start_ray.origin = ray.origin + tests[next_dir].unwrap() * ray.dir;
                     continue;
                 };
                 return Some(voxel);
             },
         }
     }
+
+    /// Trace a ray inside of this node, rendering the edges of branches.
+    pub fn debug_trace(&self, nodes: &[Node], bb: IAabb, ray: Ray) -> Option<Voxel> {
+        #[cfg(feature = "trace")]
+        let _span = trace_span!("node_debug_trace").entered();
+
+        let mut start_ray = ray;
+        let mut idx = ray.origin.cmpgt(bb.origin.as_vec3a()).bitmask() as usize;
+        let tests = bb.plane_intersections(ray);
+        let mut dirs = sort_dirs(tests);
+
+        match self {
+            Node::Branch(branches) => {
+                if bb.intersects_edge(ray) {
+                    let color = pearson_hash(bb.origin);
+                    return Some(Voxel { color });
+                }
+
+                loop {
+                    let Some(next_node) = branches[idx] else {
+                        let next_dir = dirs.next()?;
+                        idx ^= 1 << next_dir;
+                        start_ray.origin = ray.origin + tests[next_dir].unwrap() * ray.dir;
+                        continue;
+                    };
+
+                    let next_bb = bb.octant(idx);
+
+                    let Some(voxel) = nodes[next_node.get()].debug_trace(nodes, next_bb, start_ray)
+                    else {
+                        let next_dir = dirs.next()?;
+                        idx ^= 1 << next_dir;
+                        start_ray.origin = ray.origin + tests[next_dir].unwrap() * ray.dir;
+                        continue;
+                    };
+
+                    return Some(voxel);
+                }
+            }
+            Node::Leaf(leaves) => loop {
+                let Some(_) = leaves[idx] else {
+                    let next_dir = dirs.next()?;
+                    idx ^= 1 << next_dir;
+                    start_ray.origin = ray.origin + tests[next_dir].unwrap() * ray.dir;
+                    continue;
+                };
+                return Some(Voxel {
+                    color: U8Vec3::ZERO,
+                });
+            },
+        }
+    }
 }
 
 /// Sorts and filters the directions to toggle.
-fn ordered_dirs(bb: IAabb, ray: Ray) -> impl Iterator<Item = usize> {
-    let tests = bb.plane_intersections(ray);
+fn sort_dirs(tests: [Option<f32>; 3]) -> impl Iterator<Item = usize> {
+    #[cfg(feature = "trace")]
+    let _span = trace_span!("sort_dirs").entered();
+
     let mut axes = [(0, tests[0]), (1, tests[1]), (2, tests[2])];
     axes.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
     axes.into_iter()
         .filter(move |(_, s)| s.is_some())
         .map(|(i, _)| i)
+}
+
+/// Pearson hashing of a position to a color.
+fn pearson_hash(pos: IVec3) -> U8Vec3 {
+    #[cfg(feature = "trace")]
+    let _span = trace_span!("pearson_hash").entered();
+
+    use lookup_table::LOOKUP;
+
+    let mut r = 1;
+    let mut g = 2;
+    let mut b = 3;
+
+    for x in pos.x.to_ne_bytes() {
+        for y in pos.y.to_ne_bytes() {
+            for z in pos.z.to_ne_bytes() {
+                r = LOOKUP[(r ^ x) as usize];
+                r = LOOKUP[(r ^ y) as usize];
+                r = LOOKUP[(r ^ z) as usize];
+                g = LOOKUP[(g ^ x) as usize];
+                g = LOOKUP[(g ^ y) as usize];
+                g = LOOKUP[(g ^ z) as usize];
+                b = LOOKUP[(b ^ x) as usize];
+                b = LOOKUP[(b ^ y) as usize];
+                b = LOOKUP[(b ^ z) as usize];
+            }
+        }
+    }
+
+    return U8Vec3::new(r, g, b);
 }
 
 #[cfg(test)]
@@ -296,7 +418,8 @@ mod tests {
             assert!(inserted);
         }
 
-        println!("{:?}", octree.nodes);
+        #[cfg(feature = "trace")]
+        debug!("{:?}", octree.nodes);
 
         {
             let got = octree.get(IVec3::ONE);
@@ -313,7 +436,8 @@ mod tests {
             assert!(inserted);
         }
 
-        println!("{:?}", octree.nodes);
+        #[cfg(feature = "trace")]
+        debug!("{:?}", octree.nodes);
 
         {
             let inserted = octree.insert(
@@ -325,7 +449,8 @@ mod tests {
             assert!(!inserted);
         }
 
-        println!("{:?}", octree.nodes);
+        #[cfg(feature = "trace")]
+        debug!("{:?}", octree.nodes);
 
         {
             let got = octree.get(IVec3::ZERO);
@@ -362,7 +487,8 @@ mod tests {
             assert!(inserted);
         }
 
-        println!("{:?}", octree.nodes);
+        #[cfg(feature = "trace")]
+        debug!("{:?}", octree.nodes);
 
         {
             let got = octree.get(IVec3::ONE);
@@ -384,7 +510,8 @@ mod tests {
             assert!(inserted);
         }
 
-        println!("{:?}", octree.nodes);
+        #[cfg(feature = "trace")]
+        debug!("{:?}", octree.nodes);
 
         {
             let got = octree.get(IVec3::new(1, 0, 1));
@@ -401,14 +528,16 @@ mod tests {
     fn test_octree_insert_and_get_two() {
         let mut octree = Octree::new(IAabb::new(IVec3::ZERO, 2 * IVec3::ONE));
 
-        println!("{:?}", octree.nodes);
+        #[cfg(feature = "trace")]
+        debug!("{:?}", octree.nodes);
 
         {
             let inserted = octree.insert(IVec3::ONE, Voxel { color: U8Vec3::ONE });
             assert!(inserted);
         }
 
-        println!("{:?}", octree.nodes);
+        #[cfg(feature = "trace")]
+        debug!("{:?}", octree.nodes);
 
         {
             let got = octree.get(IVec3::ONE);
@@ -425,7 +554,8 @@ mod tests {
             assert!(inserted);
         }
 
-        println!("{:?}", octree.nodes);
+        #[cfg(feature = "trace")]
+        debug!("{:?}", octree.nodes);
 
         {
             let inserted = octree.insert(
@@ -437,7 +567,8 @@ mod tests {
             assert!(inserted);
         }
 
-        println!("{:?}", octree.nodes);
+        #[cfg(feature = "trace")]
+        debug!("{:?}", octree.nodes);
 
         {
             let got = octree.get(IVec3::ZERO);
@@ -474,7 +605,8 @@ mod tests {
             assert!(inserted);
         }
 
-        println!("{:?}", octree.nodes);
+        #[cfg(feature = "trace")]
+        debug!("{:?}", octree.nodes);
 
         {
             let got = octree.get(IVec3::ONE);

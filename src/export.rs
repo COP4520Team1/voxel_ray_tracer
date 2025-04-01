@@ -8,13 +8,20 @@ use std::path::Path;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 
+#[cfg(feature = "trace")]
+use tracing::*;
+
 pub struct Framebuffer {
     width: usize,
     height: usize,
     pixels: Box<[AtomicU32]>,
 }
+
 impl Framebuffer {
     pub fn new(width: usize, height: usize) -> Framebuffer {
+        #[cfg(feature = "trace")]
+        let _span = trace_span!("framebuffer_new").entered();
+
         let size = width * height;
         let pixels = (0..size)
             .map(|_| AtomicU32::new(0))
@@ -44,6 +51,9 @@ impl<'b> IntoParallelIterator for &'b Framebuffer {
 }
 
 pub fn export_image(fb: Framebuffer, path: impl AsRef<Path>) -> image::ImageResult<()> {
+    #[cfg(feature = "trace")]
+    let _span = trace_span!("export_image").entered();
+
     let mut img = RgbaImage::new(fb.width as u32, fb.height as u32);
     // Copy pixel at x, y from Framebuffer into image
     for x in 0..fb.width {
@@ -201,6 +211,7 @@ impl<'b> Producer for ParIterProducer<'b> {
     }
 }
 
+#[derive(Debug)]
 pub struct PixelRef<'b> {
     pub x: usize,
     pub y: usize,
