@@ -4,7 +4,8 @@ use voxel_ray_tracer::{
     ray_tracer::{dense::DenseStorage, octree::SparseStorage, types::IAabb, RayTracer},
     voxel::VoxelGenerator,
 };
-use  clap::{Parser, ValueEnum};
+use clap::{Parser, ValueEnum};
+use std::path::PathBuf;
 
 /// Define possible storage modes
 #[derive(Debug, Clone, ValueEnum)]
@@ -52,7 +53,7 @@ fn main() {
         None => println!("No position specified."),
     }
 
-    println!("Seed: {:?}", cli.seed.unwrap_or_else(|| rand::random()));
+    println!("Seed: {:?}", cli.seed.unwrap_or_else(|| rand::random()).try_into().unwrap());
     
     let output_path = 
     {
@@ -65,7 +66,7 @@ fn main() {
         {
             PathBuf::from("./").join(path)
         }
-    }
+    };
     
     println!("Output File: {}", output_path.display());
 
