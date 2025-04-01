@@ -86,31 +86,6 @@ impl IAabb {
         self.origin + self.extents
     }
 
-    pub fn split(&self, index: usize) -> IAabb {
-        assert!(index < 8, "index must be in range 0-8");
-
-        let new_extents = self.extents / 2;
-        let offset_x = if (index & 1) == 0 {
-            -new_extents.x
-        } else {
-            new_extents.x
-        };
-        let offset_y = if (index & 2) == 0 {
-            -new_extents.y
-        } else {
-            new_extents.y
-        };
-        let offset_z = if (index & 3) == 0 {
-            -new_extents.y
-        } else {
-            new_extents.y
-        };
-
-        let child_origin = self.origin + IVec3::new(offset_x, offset_y, offset_z);
-
-        IAabb::new(child_origin, new_extents)
-    }
-
     /// Returns the next power of two extent.
     ///
     /// Takes the maximum dimension and uses that to make a cube with sides that are a power of two.
@@ -182,8 +157,127 @@ impl IAabb {
         self.extents.max_element() == 1
     }
 
+    /// Checks if a ray intersects the edge of the bounding box.
+    pub fn intersects_edge(&self, ray: Ray) -> bool {
+        let min = self.min().as_vec3a();
+        let max = self.max().as_vec3a();
+
+        let dir_x = ray.dir.dot(Vec3A::X);
+        let dir_y = ray.dir.dot(Vec3A::Y);
+        let dir_z = ray.dir.dot(Vec3A::Z);
+
+        fn cmp_points(a: Option<Vec3A>, b: Option<Vec3A>) -> bool {
+            const MAX_DIST: f32 = 0.1;
+            a.zip(b)
+                .filter(|(i, j)| i.distance_squared(*j) < MAX_DIST)
+                .is_some()
+        }
+
+        let min_x = if dir_x != 0.0 {
+            let t = (min.dot(Vec3A::X) - ray.origin.dot(Vec3A::X)) / dir_x;
+            let p = ray.origin + t * ray.dir;
+            let i = p.yz();
+            if i.cmpge(min.yz()) == BVec2::TRUE && i.cmple(max.yz()) == BVec2::TRUE {
+                Some(p)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let min_y = if dir_y != 0.0 {
+            let t = (min.dot(Vec3A::Y) - ray.origin.dot(Vec3A::Y)) / dir_y;
+            let p = ray.origin + t * ray.dir;
+            let i = p.xz();
+            if i.cmpge(min.xz()) == BVec2::TRUE && i.cmple(max.xz()) == BVec2::TRUE {
+                Some(p)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if cmp_points(min_x, min_y) {
+            return true;
+        }
+
+        let min_z = if dir_z != 0.0 {
+            let t = (min.dot(Vec3A::Z) - ray.origin.dot(Vec3A::Z)) / dir_z;
+            let p = ray.origin + t * ray.dir;
+            let i = p.xy();
+            if i.cmpge(min.xy()) == BVec2::TRUE && i.cmple(max.xy()) == BVec2::TRUE {
+                Some(p)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if min_z.is_some() && (cmp_points(min_z, min_y) || cmp_points(min_z, min_x)) {
+            return true;
+        }
+
+        let max_x = if dir_x != 0.0 {
+            let t = (max.dot(Vec3A::X) - ray.origin.dot(Vec3A::X)) / dir_x;
+            let p = ray.origin + t * ray.dir;
+            let i = p.yz();
+            if i.cmpge(min.yz()) == BVec2::TRUE && i.cmple(max.yz()) == BVec2::TRUE {
+                Some(p)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if max_x.is_some() && (cmp_points(max_x, min_z) || cmp_points(max_x, min_y)) {
+            return true;
+        }
+
+        let max_y = if dir_y != 0.0 {
+            let t = (max.dot(Vec3A::Y) - ray.origin.dot(Vec3A::Y)) / dir_y;
+            let p = ray.origin + t * ray.dir;
+            let i = p.xz();
+            if i.cmpge(min.xz()) == BVec2::TRUE && i.cmple(max.xz()) == BVec2::TRUE {
+                Some(p)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if max_y.is_some()
+            && (cmp_points(max_y, max_x) || cmp_points(max_y, min_z) || cmp_points(max_y, min_x))
+        {
+            return true;
+        }
+
+        let max_z = if dir_z != 0.0 {
+            let t = (max.dot(Vec3A::Z) - ray.origin.dot(Vec3A::Z)) / dir_z;
+            let p = ray.origin + t * ray.dir;
+            let i = p.xy();
+            if i.cmpge(min.xy()) == BVec2::TRUE && i.cmple(max.xy()) == BVec2::TRUE {
+                Some(p)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        max_z.is_some()
+            && (cmp_points(max_z, max_y)
+                || cmp_points(max_z, max_x)
+                || cmp_points(max_z, min_y)
+                || cmp_points(max_z, min_x))
+    }
+
     /// Checks for ray intersections across planes inside of the bounding box.
-    /// Returns the squared distance if found.
+    /// Returns the distance if found.
     ///
     /// (x, y, z) axes -> (yz, xz, xy) planes
     pub fn plane_intersections(&self, ray: Ray) -> [Option<f32>; 3] {
@@ -200,7 +294,7 @@ impl IAabb {
             let i = ray.origin + t * ray.dir;
             let p = i.yz();
             if p.cmpge(min.yz()) == BVec2::TRUE && p.cmple(max.yz()) == BVec2::TRUE {
-                Some(i.distance_squared(ray.origin))
+                Some(i.distance(ray.origin))
             } else {
                 None
             }
@@ -216,7 +310,7 @@ impl IAabb {
             let i = ray.origin + t * ray.dir;
             let p = i.xz();
             if p.cmpge(min.xz()) == BVec2::TRUE && p.cmple(max.xz()) == BVec2::TRUE {
-                Some(i.distance_squared(ray.origin))
+                Some(i.distance(ray.origin))
             } else {
                 None
             }
@@ -232,7 +326,7 @@ impl IAabb {
             let i = ray.origin + t * ray.dir;
             let p = i.xy();
             if p.cmpge(min.xy()) == BVec2::TRUE && p.cmple(max.xy()) == BVec2::TRUE {
-                Some(i.distance_squared(ray.origin))
+                Some(i.distance(ray.origin))
             } else {
                 None
             }
