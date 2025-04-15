@@ -75,20 +75,20 @@ impl Chunk {
         let step = ray.dir.signum();
         let delta = (1.0 / ray.dir).abs();
 
-        let pos = entry_pos.floor().clamp(Vec3A::ZERO, max - min);
+        let size = max - min;
+        let pos = entry_pos.floor().clamp(Vec3A::ZERO, size - Vec3A::ONE);
 
-        let mut tmax = (pos - entry_pos + step.max(Vec3A::ZERO)) / ray.dir;
+        let mut tmax = (pos - entry_pos + step / 2.0) / ray.dir;
 
         let mut curr_idx = pos.as_ivec3();
-
         let step = step.as_ivec3();
 
         // use conditions to iterate over voxel spaces
         loop {
             let voxel_entry = self.data.get(
                 curr_idx.z as usize
-                    + self.bb.width()
-                        * (curr_idx.y as usize + self.bb.height() * curr_idx.x as usize),
+                    + size.z as usize
+                        * (curr_idx.y as usize + size.y as usize * curr_idx.x as usize),
             )?;
 
             if voxel_entry.is_some() {
