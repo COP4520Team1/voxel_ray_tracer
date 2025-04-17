@@ -3,17 +3,33 @@
 % The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
 %Template version as of 6/27/2024
 
+\usepackage{algorithm}
 \usepackage{cite}
 \usepackage{cprotect}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{algorithmic}
 \usepackage{graphicx}
+\usepackage{hyperref}
 \usepackage{outlines}
 \usepackage{textcomp}
 \usepackage{xcolor}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \graphicspath{ {./images/} }
+
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+\renewcommand{\algorithmicensure}{\textbf{Output:}}
+\renewcommand{\algorithmicforall}{\textbf{for each}}
+\makeatletter
+\newcommand\fs@norules{\def\@fs@cfont{\bfseries}\let\@fs@capt\floatc@ruled
+  \def\@fs@pre{}%
+  \def\@fs@post{}%
+  \def\@fs@mid{\kern3pt}%
+  \let\@fs@iftopcapt\iftrue}
+\makeatother
+\floatstyle{norules}
+\restylefloat{algorithm}
+
 \begin{document}
 
 \title{A Lightweight, Swappable Voxel Ray-Tracer}
@@ -95,18 +111,18 @@ However, when rendering large scenes, meshing and rasterization typically strugg
 Meanwhile, ray tracing is capable of scaling in performance, due to optimizations that are relatively easy to implement with ray tracing, such as acceleration structures and LOD (level-of-detail), and the lack of a mesh generation step when updating voxels, as well as better memory scaling (storing a mesh takes up memory on top of storing the voxel volume).
 Because of this difference in scaling potential, when rendering large scenes on mid to high end consumer computers, ray tracing becomes more performant than rasterization.
 
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{render}}
+\caption{A render produced by our voxel ray-tracer.}
+\label{render}
+\end{figure}
+
 \subsection{Problem Statement}
 
 \textbf{We have achieved the goal for this project: implement a CPU voxel ray-tracer in the Rust language with two storage backends: a dense array storage and a sparse voxel octree storage, and benchmark them against each other.}
 The dense array represents a naive voxel storage implementation, while the sparse octree represents an acceleration structure implementation: an optimization for ray traversal via a space partitioning structure.
 Using both storage solutions, we can assess the benefits of octrees for optimizing ray traversal in voxel scenes via benchmarks simulating rendering scenes at different sizes and resolutions.
 See Fig.~\ref{render} for an example render produced by our voxel ray-tracer.
-
-\begin{figure}[htbp]
-\centerline{\includegraphics[width=\linewidth]{render}}
-\caption{A render produced by our voxel ray-tracer.}
-\label{render}
-\end{figure}
 
 \section{Methodology}
 
@@ -186,18 +202,41 @@ When a voxel is found or the indices go out of bounds, it returns.
 
 \subsection{Sparse Storage}
 
-[Sparse: Octree space partitioning]
+The sparse storage backend stores present voxels in a space partitioning structure called an "octree" (See Fig.~\ref{octree} for examples).
+It is most beneficial to use such a storage solution when there are large gaps in the volume, or in other words, when the volume is sparsely populated, hence the name.
 
-In the world of 2D graphics there is a data structure known as a quadtree which is used to divide a 2D plane into 4 quadrants one to represent top left, top right, bottom left, and bottom right.
-These quadrants are stored as children of a parent node and so on and so forth.
-An Octree is the 3D equivalent of this.
-Within each Octree is a root that represents an area in 3D space, within this root there are 8 children which are 8 subdivisions of the parent root, each subsequent child breaks down the space until the children being stored are individual voxels.
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{octree}}
+\caption{Two example visualizations of an octree.}
+\label{octree}
+\end{figure}
 
-An octree is a helpful tool in rendering 3D spaces as they are a very compact way of storing voxels without wasting memory.
-They are also very quick to traverse as one can navigate to a point in a 3D space by either descending or ascending the structure to pinpoint any given location.
-One of the key features is the PreOrder Traversal, this is helpful because it can help to determine line of sight for an object, or for our purposes, a ray.
-Since the ray can check what objects it will or will not collide with by simply traversing the octree it greatly reduces a lot of redundant calculations that would have been performed were the voxels to be stored in a different data structure.
-The key difference between Dense and Sparse storage however is that 
+Octrees are tree structures that have branches that subdivide space along each axis, allowing for traversing over "octants", the 8 subdivisions of each branch.
+The benefit is that octants that don't contain voxels are culled, meaning that entire areas of empty space can be skipped when a ray traverses the octree.
+
+An easy way to understand ray traversal through octrees is to examine ray traversal for their 2D counterpart: quadtrees, which subdivides 2D space into quadrants (See Fig.~\ref{quadtree}).
+
+When beginning ray traversal, the first quadrant to check is the one where the ray originates in the direction of (so compare the volume origin to the ray origin).
+If the quadrant has children, the algorithm is recursively called for that quadrant.
+Otherwise, other quadrants are checked if the ray crosses the respective local origin's axes (the local origin is the origin of the volume for the top level and origin of quadrants for recursive calls) and in order of the distance required to cross the local origin.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{quadtree}}
+\caption{Two example visualizations of a quadtree (note: this example shows variable depth for storing items, while our octree implementation has a constant depth).}
+\label{quadtree}
+\end{figure}
+
+In order to visualize octree traversal, a debug mode was added to the ray tracer, which renders the edges of bounding boxes and colors voxels black (See Fig.~\ref{debug}).
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{debug}}
+\caption{An octree structure visualization for debugging.}
+\label{debug}
+\end{figure}
+
+It renders the edges by running face intersection tests for the ray and checking if any of the intersection points are within some threshold (that is, if two points on separate faces are close to each other, then they must lie near the edge that joins both faces).
+The color for the edge is picked via Pearson hashing, a simple hashing algorithm for small inputs that also produces byte-sized hashs via a lookup table (See Alg.~\ref{pearson} for the generic algorithm).
+The algorithm was modified to consume bytes from a position vector and produce three bytes corresponding to color channels.
 
 \subsection{Framebuffer and Image Exporter}
 
@@ -215,7 +254,17 @@ We use Rust’s \verb|image| crate to then write to an image file specified by a
 
 \subsection{Ray Tracer}
 
-[Elaborate on how ray tracer brings parts together]
+The ray tracer brings together the scene object, camera, and framebuffer components to provide an render method that generates a new framebuffer with contents rendered from the scene object with rays instantiated by the camera.
+The ray tracer runs in parallel with help from the \verb|rayon| crate, which provides traits for parallel iterators.
+\verb|rayon|'s parallel iterators work by splitting an iterator across threads via work-stealing, so if a thread finishes it's work before another, it can split the iterator on another thread to keep itself busy.
+
+What the ray tracer needs to iterate over is the pixel coordinates and values, in order to instantiate rays using the coordinates and save the result to the value.
+To do this, we implemented a parallel iterator for the framebuffer that produces \verb|PixelRef| objects, that store the coordinates and references to the pixel value.
+
+This requires implementing three components: \verb|ParIter| (our parallel iterator), \verb|ParIterProducer| (our iterator producer, which is able to split itself and convert into an iterator), and \verb|Iter| (our normal iterator which individual threads run).
+The flow of information can be roughly modeled as $\verb|Framebuffer| \to \verb|ParIter| \to \verb|ParIterProducer| \to \verb|Iter| \to \verb|PixelRef|$.
+
+For each \verb|PixelRef| we run a task which instantiates a ray from the camera using the pixel coordinates, calls the \verb|trace| method on the scene object with that ray, and saves the result to the value reference, after first converting the color vector to an unsigned integer.
 
 \subsection{Command Line Interface}
 
@@ -254,9 +303,37 @@ The benchmarks ran across 12 threads on a mid-range consumer PC with an AMD Ryze
 \end{center}
 \end{table}
 
+The benchmarks assessed the storage backends for small and medium scenes, with sizes of 50, 100, and 250 voxel extents (the total volume is $(2x)^3$ voxels for each $x$ size), and for resolution of 1080p ($1920 \times 1080$ pixels) and 4k ($7680 \times 4320$ pixels).
+We only tested small and medium sized scenes since the time to render larger scenes took too long to collect samples for in a practical time for iterating modifications.
+The camera for each scene was located in the top corner of the scene, facing inwards toward the origin (from a position of $(x-10)\hat{v}$).
+The results are the average time to render a scene, for 100 samples.
+
+For small scenes, the dense storage solution was faster, but that quickly changed as scenes grew in size.
+For scenes with size 250, the sparse storage solution was incredibly fast, even faster than it was for smaller scenes.
+This was due to the voxel generation having a height limit of 100, which meant for larger scenes that there was more empty space.
+Since the sparse backend benefits from empty space, it was able to skip more empty space, leading to faster render times.
+
+See Fig.~\ref{violin} for violin plots.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{violin-1080p}}
+\centerline{\includegraphics[width=\linewidth]{violin-4k}}
+\caption{Violin plots of the benchmarks.}
+\label{violin}
+\end{figure}
+
 \subsection{Tracing}
 
-[Discuss analysis via tracing]
+To allow for further optimization, tracing instrumentation was added to the program with the \verb|tracing|, \verb|tracing-subscriber|, and \verb|tracing-tracy| crates, which allow for timing functions using the \href{https://github.com/wolfpld/tracy}{Tracy profiler}.
+From that, we can see where the program spends the most time in and look for ways of shaving time off in those areas (See Fig.~\ref{tracing} for an example).
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{tracing}}
+\caption{An example of collected traces (notice that half the time of the program is spent constructing the scene on a single thread).}
+\label{tracing}
+\end{figure}
+
+Generating traces is costly, so this feature was put behind a feature flag.
 
 \section{Conclusion}
 
@@ -266,5 +343,20 @@ The benchmarks ran across 12 threads on a mid-range consumer PC with an AMD Ryze
 \bibitem{williams} Williams, Amy \& Barrus, Steve \& Morley, R. \& Shirley, Peter. (2005). An Efficient and Robust Ray-Box Intersection Algorithm. J. Graphics Tools. 10. 49-54. 10.1145/1198555.1198748. 
 \bibitem{amanatides} Amanatides, John \& Woo, Andrew. (1987). A Fast Voxel Traversal Algorithm for Ray Tracing. Proceedings of EuroGraphics. 87.
 \end{thebibliography}
+
+\begin{algorithm}[H]
+\caption{Generic Pearson Hashing Algorithm}
+\begin{algorithmic}[1]
+\REQUIRE Byte array $C$
+\ENSURE Byte-sized hash $h$
+\\ \textit{Initialisation} : $T$ is a permutation of an array containing bytes 0 to 255
+\STATE $h \gets 0$
+\FORALL{$c \in C$}
+\STATE $h \gets T[h \oplus c]$
+\ENDFOR
+\RETURN $h$
+\end{algorithmic}
+\label{pearson}
+\end{algorithm}
 
 \end{document}
