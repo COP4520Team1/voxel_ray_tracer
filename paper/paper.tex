@@ -4,6 +4,7 @@
 %Template version as of 6/27/2024
 
 \usepackage{cite}
+\usepackage{cprotect}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{algorithmic}
 \usepackage{graphicx}
@@ -12,6 +13,7 @@
 \usepackage{xcolor}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\graphicspath{ {./images/} }
 \begin{document}
 
 \title{A Lightweight, Swappable Voxel Ray-Tracer}
@@ -71,7 +73,7 @@ voxels, ray-tracing, octree.
 \end{IEEEkeywords}
 
 \section{Introduction}
-The term “voxels” is derived from the term “pixels”: where a “pixel” is a “picture element” that represents part of a picture, a “voxel” is a “volume element” that represents part of a volume.
+The term “voxels” is derived from the term “pixels”: where a “pixel” is a “\textbf{pic}ture \textbf{el}ement” that represents part of a picture, a “voxel” is a “\textbf{vo}lume \textbf{el}ement” that represents part of a volume.
 Volumetric data can range from MRI slices to point clouds to generated volumes in video games.
 Voxels are a representation of this volumetric data in a grid structure, just as pixels store raster images in a grid structure.
 However, while pixels and voxels are similar in structure, the way they are visualized differs vastly.
@@ -95,9 +97,16 @@ Because of this difference in scaling potential, when rendering large scenes on 
 
 \subsection{Problem Statement}
 
-The goal of this project is to implement a CPU voxel ray-tracer in the Rust language with two storage backends: a dense array storage and a sparse voxel octree storage.
+\textbf{We have achieved the goal for this project: implement a CPU voxel ray-tracer in the Rust language with two storage backends: a dense array storage and a sparse voxel octree storage, and benchmark them against each other.}
 The dense array represents a naive voxel storage implementation, while the sparse octree represents an acceleration structure implementation: an optimization for ray traversal via a space partitioning structure.
-Using both storage solutions, we can assess the benefits of octrees for optimizing ray traversal in voxel scenes.
+Using both storage solutions, we can assess the benefits of octrees for optimizing ray traversal in voxel scenes via benchmarks simulating rendering scenes at different sizes and resolutions.
+See Fig.~\ref{render} for an example render produced by our voxel ray-tracer.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{render}}
+\caption{A render produced by our voxel ray-tracer.}
+\label{render}
+\end{figure}
 
 \section{Methodology}
 
@@ -120,7 +129,7 @@ The program is divided into the following parts:
 \1 Command Line Interface
 \end{outline}
 
-[Elaborate on structure]
+The clear boundaries between components was beneficial to dividing work among colleagues.
 
 \subsection{Voxel Generation}
 
@@ -128,32 +137,51 @@ The program is divided into the following parts:
 
 \subsection{Scene Object}
 
-[Discuss the scene object]
+The scene object stores the scene and provides an interface for ray tracing.
+Our project has two scene object implementations: a dense array-backed storage object and a sparse octree-backed storage object.
+There is some overlap in the implementations of these objects, particularly the \verb|Scene| trait, \verb|Ray| struct, and \verb|IAabb| struct:
 
-\subsubsection{Scene trait}
+\cprotect\subsubsection{\verb|Scene| trait}
 
-[Elaborate on scene trait]
+The \verb|Scene| trait has two items: a function for creating the scene object given the voxel generator and a method for tracing a ray through the scene.
+This is the interface from which the ray tracer interacts with the scene.
 
-\subsubsection{Ray struct}
+\cprotect\subsubsection{\verb|Ray| struct}
 
-[Elaborate on ray struct]
+The \verb|Ray| struct is a vector pair of the ray origin and the ray direction.
+It is used to simulate light rays that traverse the scene from the camera.
 
-\subsubsection{IAabb struct}
+\cprotect\subsubsection{\verb|IAabb| struct}
 
-[Elaborate on aabb struct]
-An AABB describes the position and extents of a volume.
-By iterating over every coordinate in the AABB, the storage backend can query the voxel generator for a voxel and store it if present.
+The \verb|IAabb| struct represented an axis-aligned bounding box (AABB) represented by integer vectors.
+By iterating over every coordinate in an AABB, the storage backend can query the voxel generator for a voxel and store it if present.
 
-[Discuss fast intersection tests]
-The AABB can also be used during a ray trace, as a quick intersection test for the entire volume.
+An AABB can also be used during a ray trace, as a quick intersection test for the entire volume.
+The algorithm used for fast intersection tests is from "An Efficient and Robust Ray-Box Intersection Algorithm" by Williams et al. \cite{williams}
+To summarize how the algorithm works: it takes advantage of properties observed in intersection between rays and AABBs to quickly check if the ray crosses the box boundaries.
+
+A more detailed but brief explanation is that the algorithm projects boundary line intersections to a 1D line representing distance traveled across the ray and checks the order of these intersections to verify that the ray enters all bounds before exiting any other bounds (See Fig.~\ref{fast-intersection} for an example of the calculations).
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{fast-intersection}}
+\caption{Two example calculations for fast ray-box intersections using 2D coordinates.}
+\label{fast-intersection}
+\end{figure}
 
 \subsection{Dense Storage}
 
-[Dense: Fast Traversal Algorithm]
+The dense storage backend stores every possible position in the voxel volume in a single array.
+It is most beneficial to use such a storage solution when most positions hold present voxels, or in other words, is densely populated, hence the name.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{fast-traversal}}
+\caption{The fast voxel traversal algorithm in action.}
+\label{fast-traversal}
+\end{figure}
 
 For the dense storage backend, there exist many algorithms for ray tracing through a multidimensional array, but most are based on the “Fast Voxel Traversal” algorithm by Amanatides and Woo, which will be what we use for ray tracing in the dense storage backend \cite{amanatides}.
-This algorithm works by tracking the index and position for each axis and moving the ray along the axis with the shortest distance to the next index.
-By doing so, it ensures that no voxels are missed during iteration.
+This algorithm works by tracking the index and position for each axis and moving the ray along the axis with the shortest distance to the next index (See Fig.~\ref{fast-traversal}).
+By doing so, it ensures that no voxels are missed during iteration while not testing positions that don't intersect the ray.
 When a voxel is found or the indices go out of bounds, it returns.
 
 \subsection{Sparse Storage}
@@ -179,7 +207,7 @@ The framebuffer is a data structure that holds all the image information of the 
 It contains a memory reference to a heap-allocated array of 4-byte integers for each pixel.
 Each integer represents the RGBA values of a pixel, with the first byte holding the R value, second byte holding the G value, etc.
 The array uses an atomic data type, which allows for multiple threads to access and modify the values of different pixels safely and concurrently to allow faster image generation.
-We use Rust’s image crate to then write to a PNG file.
+We use Rust’s \verb|image| crate to then write to an image file specified by a given output path.
 
 \subsection{Camera Controller}
 
@@ -195,12 +223,48 @@ We use Rust’s image crate to then write to a PNG file.
 
 \section{Evaluation}
 
-[Discuss evaluation via benchmarks]
+To evaluate the performance benefits of sparse voxel octrees over array-backed storage, we constructed benchmarks via \verb|criterion.rs| that measured the performance of each storage backend over scene size and frame resolution.
+The benchmarks ran across 12 threads on a mid-range consumer PC with an AMD Ryzen 5 2600 6-core CPU and 32GB of RAM.
+
+\begin{table}[htbp]
+\caption{1080p Resolution Benchmarks}
+\begin{center}
+\begin{tabular}{|c|c|c|c|}
+\hline
+\textbf{Scene Size} & \textbf{Dense} & \textbf{Sparse}  & \textbf{Ratio} \\\hline 
+50 & 37.557 ms & 211.86 ms & 0.1773 \\\hline
+100 & 192.48 ms & 247.86 ms & 0.7766 \\\hline
+250 & 811.93 ms & 122.55 ms & 6.6253 \\\hline
+\end{tabular}
+\label{1080p-bench}
+\end{center}
+\end{table}
+
+\begin{table}[htbp]
+\caption{4k Resolution Benchmarks}
+\begin{center}
+\begin{tabular}{|c|c|c|c|}
+\hline
+\textbf{Scene Size} & \textbf{Dense} & \textbf{Sparse}  & \textbf{Ratio} \\\hline 
+50 & 261.11 ms & 2.5230 s & 0.1035 \\\hline
+100 & 3.0203 s & 3.5526 s & 0.8502 \\\hline
+250 & 10.016 s & 2.0995 s & 4.7706 \\\hline
+\end{tabular}
+\label{4k-bench}
+\end{center}
+\end{table}
+
+\subsection{Tracing}
 
 [Discuss analysis via tracing]
 
+\section{Conclusion}
+
+[Draw some conclusion that affirms that we did what we set out to do]
+
 \begin{thebibliography}{00}
-\bibitem{amanatides} Amanatides, John and Woo, Andrew. (1987). A Fast Voxel Traversal Algorithm for Ray Tracing. Proceedings of EuroGraphics. 87.
+\bibitem{williams} Williams, Amy \& Barrus, Steve \& Morley, R. \& Shirley, Peter. (2005). An Efficient and Robust Ray-Box Intersection Algorithm. J. Graphics Tools. 10. 49-54. 10.1145/1198555.1198748. 
+\bibitem{amanatides} Amanatides, John \& Woo, Andrew. (1987). A Fast Voxel Traversal Algorithm for Ray Tracing. Proceedings of EuroGraphics. 87.
 \end{thebibliography}
 
 \end{document}
