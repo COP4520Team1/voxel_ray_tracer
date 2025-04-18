@@ -337,7 +337,9 @@ Generating traces is costly, so this feature was put behind a feature flag.
 
 \section{Conclusion}
 
-[Draw some conclusion that affirms that we did what we set out to do]
+In this paper, we aimed to compare two different storage solutions for a CPU voxel ray-tracer implemented in Rust. By comparing the average time it took to render randomly-generated scenes of varying sizes and at different resolutions, we found that a naive implementation (storing every voxel in an array, traversed with Amanatides and Woo’s “Fast Voxel Traversal” algorithm) was faster than a sparse storage solution (storing every voxel in an octree structure, traversed with a recursive algorithm) at smaller scene sizes, but scaled poorly and was significantly slower for the largest scenes that we tested. The sparse storage solution was faster for large scenes because its recursive structure eliminates some unnecessary traversal over empty space.
+
+Some limitations and future areas of research for our study include but are not limited to the following: we only tested the ray tracer with relatively small scenes (<250 voxel extents), as it would have taken an impractical amount of time to do so with our computing resources. We also did not study the effects of using different visual textures.
 
 \begin{thebibliography}{00}
 \bibitem{williams} Williams, Amy \& Barrus, Steve \& Morley, R. \& Shirley, Peter. (2005). An Efficient and Robust Ray-Box Intersection Algorithm. J. Graphics Tools. 10. 49-54. 10.1145/1198555.1198748. 
