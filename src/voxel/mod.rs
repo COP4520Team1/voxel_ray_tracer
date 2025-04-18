@@ -8,10 +8,10 @@ pub struct Voxel {
     pub color: U8Vec3,
 }
 
-/// An iterator that produces voxels with z coordinate calculated by Perlin noise function mapped over x and y coordinates, and voxel color is mapped from max voxel height at its x and y coordinate
+/// A generator that produces voxels with y coordinate calculated by Perlin noise function mapped over x and z coordinates, and voxel color is mapped from max voxel height at its x and z coordinate
 #[derive(Clone)]
 pub struct VoxelGenerator {
-    seed: u32,
+    perlin: Perlin,
 }
 
 /// Max height of the voxel
@@ -33,38 +33,38 @@ impl VoxelGenerator {
     /// Create a new voxel generator with random seed.
     pub fn new() -> Self {
         let seed: u32 = rand::rng().random::<u32>();
-        Self { seed }
+        let perlin = Perlin::new(seed);
+        Self { perlin }
     }
 
     /// Creates a new voxel generator with set seed (for testing purposes)
     pub fn new_from_seed(seed: u32) -> Self {
-        Self { seed }
+        let perlin = Perlin::new(seed);
+        Self { perlin }
     }
 
     /// Lookup a voxel value at some position.
     pub fn lookup(&self, pos: IVec3) -> Option<Voxel> {
-        let perlin = Perlin::new(self.seed);
-
-        // Calculate the Perlin noise value at (x, y)
+        // Calculate the Perlin noise value at (x, z)
         let nx = pos.x as f64 * SCALE;
-        let ny = pos.y as f64 * SCALE;
-        let noise_value = perlin.get([nx, ny]);
+        let nz = pos.z as f64 * SCALE;
+        let noise_value = self.perlin.get([nx, nz]);
 
         // Calculate the terrain height based on the noise value
-        let terrain_z = ((noise_value + 1.0) / 2.0 * HEIGHT as f64) as i32;
+        let terrain_y = ((noise_value + 1.0) / 2.0 * HEIGHT as f64) as i32;
 
-        // Check if the voxel exists at the requested position (z should be <= terrain_z)
-        if pos.z >= 0 && pos.z <= terrain_z {
+        // Check if the voxel exists at the requested position (y should be <= terrain_y)
+        if pos.y >= 0 && pos.y <= terrain_y {
             Some(Voxel {
-                color: Self::height_to_color(terrain_z),
+                color: Self::height_to_color(terrain_y),
             })
         } else {
             None
         }
     }
 
-    fn height_to_color(z: i32) -> U8Vec3 {
-        let normalized = z as f32 / HEIGHT as f32;
+    fn height_to_color(y: i32) -> U8Vec3 {
+        let normalized = y as f32 / HEIGHT as f32;
 
         if normalized < 0.3 {
             WATER_BLUE
@@ -80,6 +80,8 @@ impl VoxelGenerator {
 
 #[cfg(test)]
 mod tests {
+    use noise::Seedable;
+
     use super::*;
 
     const TEST_SEED: u32 = 12345;
@@ -90,35 +92,35 @@ mod tests {
 
         // Define coordinates to test
         let x = 0;
-        let y = 0;
+        let z = 0;
 
         // Calculate the Perlin noise value at (5, 5)
         let perlin = Perlin::new(TEST_SEED);
         let nx = x as f64 * SCALE;
-        let ny = y as f64 * SCALE;
-        let noise_value = perlin.get([nx, ny]);
+        let nz = z as f64 * SCALE;
+        let noise_value = perlin.get([nx, nz]);
 
         // Calculate the terrain height based on the noise value
-        let terrain_z = ((noise_value + 1.0) / 2.0 * HEIGHT as f64) as i32;
+        let terrain_y = ((noise_value + 1.0) / 2.0 * HEIGHT as f64) as i32;
 
         // Check if the voxel exists at the calculated height
-        let voxel_correct_height = voxel_generator.lookup(IVec3::new(x, y, terrain_z));
+        let voxel_correct_height = voxel_generator.lookup(IVec3::new(x, terrain_y, z));
         assert!(
             voxel_correct_height.is_some(),
             "Voxel does not exist at correct height"
         );
 
         // Check if the voxel above the calculated height does not exist
-        let voxel_above = voxel_generator.lookup(IVec3::new(x, y, terrain_z + 1));
+        let voxel_above = voxel_generator.lookup(IVec3::new(x, terrain_y + 1, z));
         assert!(
             voxel_above.is_none(),
             "Voxel exists above the calculated height"
         );
 
         // Ensure voxel exists below or at calculated height
-        let voxel_below = voxel_generator.lookup(IVec3::new(x, y, terrain_z - 1));
+        let voxel_below = voxel_generator.lookup(IVec3::new(x, terrain_y - 1, z));
         assert!(
-            voxel_below.is_some() || terrain_z == 0,
+            voxel_below.is_some() || terrain_y == 0,
             "Voxel is missing below or at the calculated height"
         );
     }
@@ -128,7 +130,7 @@ mod tests {
         let voxel_gen_1 = VoxelGenerator::new();
         let voxel_gen_2 = VoxelGenerator::new();
 
-        assert_ne!(voxel_gen_1.seed, voxel_gen_2.seed, "Either the seeds were randomly generated to be the same (test case by rerunning test) or seed generation is not working properly");
+        assert_ne!(voxel_gen_1.perlin.seed(), voxel_gen_2.perlin.seed(), "Either the seeds were randomly generated to be the same (test case by rerunning test) or seed generation is not working properly");
     }
 
     #[test]
