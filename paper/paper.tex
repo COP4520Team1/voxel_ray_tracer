@@ -282,7 +282,51 @@ We use Rust’s \verb|image| crate to then write to an image file specified by a
 
 \subsection{Camera Controller}
 
-[Elaborate on camera and ray instantiation]
+Any image of the scene must be viewed from somewhere and at some angle; this is handled by the \texttt{Camera} controller.
+The \texttt{Camera} holds several attributes corresponding to the camera's position, orientation, field of view, and related values.
+From these, other values such as the distance in the scene between each pixel, the location of the top-left pixel in the scene, and the boundaries of the visible area are also calculated.
+The \texttt{Camera} class contains a \texttt{get\_ray} function that receives pixel coordinates and creates a \texttt{Ray} object from the camera's position into a direction corresponding to these coordinates.
+
+In further detail, when creating a Camera object, there are seven parameters the user may specify; otherwise, default values are used. They are as follows:
+\begin{itemize}
+  \item \texttt{img\_width}: The width of the image in pixels.
+  \item \texttt{img\_height}: The height of the image in pixels.
+  \item \texttt{vertical\_fov}: The vertical field of view in degrees.
+  \item \texttt{lookfrom}: The 3D coordinates of the camera.
+  \item \texttt{lookat}: The 3D coordinates of the point the camera is pointed towards.
+  \item \texttt{cam\_up}: A vector representing the "up" direction relative to the scene.
+  \item \texttt{focus\_dist}: Distance from the camera to the focus point.
+\end{itemize}
+
+From these, the program then converts the \texttt{vertical\_fov} from degrees to radians, then calculates the height angle \texttt{h}, multiplying it by \texttt{2 * focus\_dist} to get the \texttt{viewport\_height}.
+Then, it uses the ratio of the image dimensions, \texttt{img\_width} and \texttt{img\_height}, to calculate the \texttt{viewport\_width}.
+
+It also creates an orthonormal basis for the camera through a series of cross products: 
+\begin{itemize} 
+  \item First, the forwards-vector (z-axis), \texttt{w} is calculated by normalizing a vector from \texttt{lookfrom} to \texttt{lookto}.
+  \item Then, the right-vector (x-axis), \texttt{u} is calculated by taking the cross-product between \texttt{w} and \texttt{cam\_up} and normalizing.
+  \item Finally, the up-vector (y-axis), \texttt{v} is calculated by taking the cross-product between \texttt{u} and \texttt{w}.
+\end{itemize}
+\begin{figure}[htbp]
+  \centerline{\includegraphics[width=\linewidth]{orthonormal-basis}}
+  \caption{The orthonormal basis after each step.}
+  \label{orthonormal-basis}
+\end{figure}
+
+The vectors \texttt{viewport\_u} and \texttt{viewport\_v} are then calculated by multiplying \texttt{u} by \texttt{viewport\_width} and \texttt{v} by \texttt{viewport\_height}, respectively.
+Dividing them by the image dimensions, we get \texttt{pixel\_delta\_u} and \texttt{pixel\_delta\_v}, representing the horizontal and vertical distances between each pixel.
+Then, we subtract half of the \texttt{viewport\_width} and \texttt{viewport\_height} from the center and add half of \texttt{pixel\_delta\_u} and \texttt{pixel\_delta\_v} to get the scene location of the top-left pixel, \texttt{pixel00\_loc}.
+
+These calculated values are then used in the \texttt{get\_ray} function as follows:
+The function takes in the pixel coordinates, \texttt{i} and \texttt{j}; it calculates \texttt{pixel\_sample} by starting from the top-left pixel \texttt{pixel00\_loc} and adding \texttt{i * pixel\_delta\_u} and \texttt{j * pixel\_delta\_v} to it.
+
+\begin{figure}[htbp]
+  \centerline{\includegraphics[width=\linewidth]{pixel-delta-grid}}
+  \caption{The \texttt{get\_ray} function, visualized. In a 4x4 pixel image, this ray goes through the pixel in the second row, second column.}
+  \label{pixel-delta-grid}
+\end{figure}
+
+Then, it returns a \texttt{Ray} object with origin in \texttt{center} and direction going from there into \texttt{pixel\_sample}.
 
 \subsection{Ray Tracer}
 
@@ -300,7 +344,32 @@ For each \verb|PixelRef| we run a task which instantiates a ray from the camera 
 
 \subsection{Command Line Interface}
 
-[Elaborate on the CLI]
+To properly interact with our program a CLI(Command Line Interface) was developed using the CLAP(Command Line Argument Parser) library. CLAP accepts flags and corresponding arguments to augment or modify how the scenes are generated. We implemented 7 key flags: 
+\begin{outline}
+\1 Backend (dense or sparse)(string)
+\1 Size (int)
+\1 Position (x,y,z)(int)
+\1 Seed (int)
+\1 Out (string)
+\1 Width and Height (int)
+\1 Debug (boolean)
+\end{outline}
+
+The \textit{Backend} flag is used to swap between dense and sparse storage, this helped us to quickly compare the two modes of rendering and collect data about rendering speeds, performance, and file size.
+
+The \textit{Size} flag is used to determine the size of the scene being generated, this is also useful in benchmarking the two different backends as the increase in speed between the two is dependent on size.
+
+The \textit{Position} flag is used to move the camera around in a 3D space, hence why it takes in x,y, and, z coordinates, this allows the user to get a better view of the scene and examine the behaviors of different seeds.
+
+The \textit{Seed} flag is used to input or, if left blank, randomize, the seed for what is being rendered, it determines where voxels are positioned which in turn determines how they are colored according to their height.
+
+The \textit{Out} flag is used to designate where the image of the render is stored by inputting a file path, if not, the default location is 'render.png'.
+
+The \textit{Width and Height} flags determine the resolution of the image, this is also useful for benchmarking the two different methods of generation as resolution can have an effect on render time.
+
+The \textit{Debug} flag is used to enable or disable the debug mode which is crucial for building on top of what we have already developed and for troubleshooting any potential issues that may arise.
+
+Overall the Command Line was not the most complex component of the \textit{Voxel Ray Tracer} but it was a crucial tool for us to be able to interact with the renderer and take benchmarks for how different settings performed.
 
 \section{Evaluation}
 
@@ -369,7 +438,9 @@ Generating traces is costly, so this feature was put behind a feature flag.
 
 \section{Conclusion}
 
-[Draw some conclusion that affirms that we did what we set out to do]
+In this paper, we aimed to compare two different storage solutions for a CPU voxel ray-tracer implemented in Rust. By comparing the average time it took to render randomly-generated scenes of varying sizes and at different resolutions, we found that a naive implementation (storing every voxel in an array, traversed with Amanatides and Woo’s “Fast Voxel Traversal” algorithm) was faster than a sparse storage solution (storing every voxel in an octree structure, traversed with a recursive algorithm) at smaller scene sizes, but scaled poorly and was significantly slower for the largest scenes that we tested. The sparse storage solution was faster for large scenes because its recursive structure eliminates some unnecessary traversal over empty space.
+
+Some limitations and future areas of research for our study include but are not limited to the following: we only tested the ray tracer with relatively small scenes (<250 voxel extents), as it would have taken an impractical amount of time to do so with our computing resources. We also did not study the effects of using different visual textures.
 
 \begin{thebibliography}{00}
 \bibitem{williams} Williams, Amy \& Barrus, Steve \& Morley, R. \& Shirley, Peter. (2005). An Efficient and Robust Ray-Box Intersection Algorithm. J. Graphics Tools. 10. 49-54. 10.1145/1198555.1198748.
