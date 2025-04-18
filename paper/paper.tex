@@ -312,7 +312,32 @@ For each \verb|PixelRef| we run a task which instantiates a ray from the camera 
 
 \subsection{Command Line Interface}
 
-[Elaborate on the CLI]
+To properly interact with our program a CLI(Command Line Interface) was developed using the CLAP(Command Line Argument Parser) library. CLAP accepts flags and corresponding arguments to augment or modify how the scenes are generated. We implemented 7 key flags: 
+\begin{outline}
+\1 Backend (dense or sparse)(string)
+\1 Size (int)
+\1 Position (x,y,z)(int)
+\1 Seed (int)
+\1 Out (string)
+\1 Width and Height (int)
+\1 Debug (boolean)
+\end{outline}
+
+The \textit{Backend} flag is used to swap between dense and sparse storage, this helped us to quickly compare the two modes of rendering and collect data about rendering speeds, performance, and file size.
+
+The \textit{Size} flag is used to determine the size of the scene being generated, this is also useful in benchmarking the two different backends as the increase in speed between the two is dependent on size.
+
+The \textit{Position} flag is used to move the camera around in a 3D space, hence why it takes in x,y, and, z coordinates, this allows the user to get a better view of the scene and examine the behaviors of different seeds.
+
+The \textit{Seed} flag is used to input or, if left blank, randomize, the seed for what is being rendered, it determines where voxels are positioned which in turn determines how they are colored according to their height.
+
+The \textit{Out} flag is used to designate where the image of the render is stored by inputting a file path, if not, the default location is 'render.png'.
+
+The \textit{Width and Height} flags determine the resolution of the image, this is also useful for benchmarking the two different methods of generation as resolution can have an effect on render time.
+
+The \textit{Debug} flag is used to enable or disable the debug mode which is crucial for building on top of what we have already developed and for troubleshooting any potential issues that may arise.
+
+Overall the Command Line was not the most complex component of the \textit{Voxel Ray Tracer} but it was a crucial tool for us to be able to interact with the renderer and take benchmarks for how different settings performed.
 
 \section{Evaluation}
 
